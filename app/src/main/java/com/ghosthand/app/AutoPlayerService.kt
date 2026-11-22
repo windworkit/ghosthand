@@ -29,6 +29,9 @@ import com.ghosthand.app.agent.AdSentinel
 import com.ghosthand.app.agent.AgentBus
 import com.ghosthand.app.agent.Motor
 import com.ghosthand.app.vision.Ocr
+import com.ghosthand.app.vision.ActiveDisplayResolver
+import com.ghosthand.app.vision.FramePoint
+import com.ghosthand.app.vision.ScreenCoordinateTransform
 import com.ghosthand.app.vision.ScreenClassifier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +46,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
@@ -188,18 +192,27 @@ class AutoPlayerService : AccessibilityService() {
         dispatch(path, st.ms)
     }
 
-    private suspend fun dispatch(path: Path, durationMs: Long) {
+    private suspend fun dispatch(path: Path, durationMs: Long): Boolean {
         val dur = durationMs.coerceIn(40L, 60_000L)
-        return suspendCancellableCoroutine { cont ->
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, dur))
-                .build()
-            val ok = dispatchGesture(gesture, object : GestureResultCallback() {
-                override fun onCompleted(g: GestureDescription?) { if (cont.isActive) cont.resume(Unit) }
-                override fun onCancelled(g: GestureDescription?) { if (cont.isActive) cont.resume(Unit) }
-            }, null)
-            if (!ok && cont.isActive) cont.resume(Unit)
-        }
+        return withTimeoutOrNull(dur + 2500L) {
+            suspendCancellableCoroutine<Boolean> { cont ->
+                val callback = object : GestureResultCallback() {
+                    override fun onCompleted(g: GestureDescription?) {
+                        if (cont.isActive) cont.resume(true)
+                    }
+                    override fun onCancelled(g: GestureDescription?) {
+                        if (cont.isActive) cont.resume(false)
+                    }
+                }
+                val accepted = runCatching {
+                    val gesture = GestureDescription.Builder()
+                        .addStroke(GestureDescription.StrokeDescription(path, 0, dur))
+                        .build()
+                    dispatchGesture(gesture, callback, null)
+                }.getOrDefault(false)
+                if (!accepted && cont.isActive) cont.resume(false)
+            }
+        } ?: false
     }
 
     private suspend fun dwell() { delay(rnd2(40L, 130L)) }
@@ -208,37 +221,10 @@ class AutoPlayerService : AccessibilityService() {
     private fun amp(s: Script) = s.jitterDp * resources.displayMetrics.density
     private fun off(a: Float) = if (a <= 0f) 0f else (Random.nextFloat() * 2 - 1) * a
 
-    private fun screen(): Pair<Int, Int> = try {
-        // Use the same active default-display bounds as ScreenCaster. The
-        // default display changes dimensions when a Galaxy Fold moves between
-        // cover and inner panels; service/app resource metrics can be stale.
-        val display = getSystemService(DisplayManager::class.java)
-            .getDisplay(Display.DEFAULT_DISPLAY)
-        val displayContext = if (display != null) createDisplayContext(display) else this
-        val bounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && display != null) {
-            runCatching {
-                displayContext.createWindowContext(
-                    display, WindowManager.LayoutParams.TYPE_APPLICATION, null
-                ).getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
-            }.getOrNull()
-        } else null
-
-        val size = Point()
-        if (bounds == null || bounds.width() <= 0 || bounds.height() <= 0) {
-            runCatching {
-                @Suppress("DEPRECATION")
-                display?.getRealSize(size)
-            }
-        }
-        val width = bounds?.width()?.takeIf { it > 0 }
-            ?: size.x.takeIf { it > 0 }
-            ?: displayContext.resources.displayMetrics.widthPixels
-        val height = bounds?.height()?.takeIf { it > 0 }
-            ?: size.y.takeIf { it > 0 }
-            ?: displayContext.resources.displayMetrics.heightPixels
-        width to height
-    } catch (e: Exception) {
-        resources.displayMetrics.widthPixels to resources.displayMetrics.heightPixels
+    private fun screen(): Pair<Int, Int> {
+        val active = ActiveDisplayResolver.resolve(this)
+        return if (active != null) active.width to active.height
+        else resources.displayMetrics.widthPixels to resources.displayMetrics.heightPixels
     }
 
     // ---------------- smart play (agent mode) ----------------
@@ -258,35 +244,52 @@ class AutoPlayerService : AccessibilityService() {
                 val j = 5f * resources.displayMetrics.density
                 dispatch(Path().apply { moveTo(x * w + off(j), y * h + off(j)) }, 48 + rnd(40))
             }
-            override suspend fun drag(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long) {
-                val (w, h) = screen()
-
-                // Smart Play relies on cell-level placement. Random offsets or
-                // a short drag can start outside a tile and cause a tap instead.
-                // Use exact normalized coordinates and a deliberate straight drag.
-                val startX = x1.coerceIn(0.01f, 0.99f) * w
-                val startY = y1.coerceIn(0.01f, 0.99f) * h
-                val endX = x2.coerceIn(0.01f, 0.99f) * w
-                val endY = y2.coerceIn(0.01f, 0.99f) * h
-                val path = Path().apply {
-                    moveTo(startX, startY)
-                    lineTo(endX, endY)
+            override suspend fun drag(
+                start: FramePoint,
+                end: FramePoint,
+                transform: ScreenCoordinateTransform,
+                ms: Long
+            ): Boolean {
+                val active = ActiveDisplayResolver.resolve(this@AutoPlayerService) ?: return false
+                if (!transform.isCompatible(active)) {
+                    android.util.Log.w(
+                        "GhostHandTouch",
+                        "Refused stale/misaligned transform: ${transform.diagnostic()}; " +
+                            "active=${active.width}x${active.height}@r${active.rotation}"
+                    )
+                    return false
                 }
 
-                dispatch(path, ms.coerceIn(500, 1800))
-                delay(220)
+                // This is the only bitmap-to-touch conversion in Smart Play.
+                // Invalid frame points are rejected; none are silently clamped.
+                val from = transform.frameToScreen(start) ?: return false
+                val to = transform.frameToScreen(end) ?: return false
+                if (from.x < 0f || from.y < 0f || to.x < 0f || to.y < 0f ||
+                    from.x >= active.width || to.x >= active.width ||
+                    from.y >= active.height || to.y >= active.height
+                ) return false
+
+                android.util.Log.i(
+                    "GhostHandTouch",
+                    "frame=(${start.x},${start.y})->(${end.x},${end.y}); " +
+                        "touch=(${from.x},${from.y})->(${to.x},${to.y}); " +
+                        transform.diagnostic()
+                )
+                val path = Path().apply {
+                    moveTo(from.x, from.y)
+                    lineTo(to.x, to.y)
+                }
+                val completed = dispatch(path, ms.coerceIn(500L, 1800L))
+                if (completed) delay(220)
+                return completed
             }
-            override fun isFrameAligned(frameWidth: Int, frameHeight: Int): Boolean {
-                if (frameWidth <= 0 || frameHeight <= 0) return false
-                val (displayWidth, displayHeight) = screen()
-                if (displayWidth <= 0 || displayHeight <= 0) return false
-                val frameAspect = frameWidth.toFloat() / frameHeight
-                val displayAspect = displayWidth.toFloat() / displayHeight
-                val relativeError = kotlin.math.abs(frameAspect - displayAspect) / displayAspect
-                // Full-display capture should match closely. Refuse to drag
-                // when Android has centered/letterboxed an app-only capture or
-                // when the Fold changed panels after capture began.
-                return relativeError <= 0.015f
+            override fun isFrameAligned(
+                transform: ScreenCoordinateTransform,
+                frameWidth: Int,
+                frameHeight: Int
+            ): Boolean {
+                val active = ActiveDisplayResolver.resolve(this@AutoPlayerService) ?: return false
+                return transform.isCompatible(active, frameWidth, frameHeight)
             }
             override suspend fun idle(ms: Long) = delay(ms)
         }
