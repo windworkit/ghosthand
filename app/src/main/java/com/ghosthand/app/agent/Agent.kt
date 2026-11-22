@@ -22,39 +22,51 @@ class Agent(
     private val reader = BoardReader()
 
     suspend fun loop(frame: () -> Bitmap?) {
-        onStatus("Booting…")
+        onStatus("Waiting for screen…")
         var calibFails = 0
+        var hasReceivedFrame = false
         while (coroutineContext.isActive) {
             val bmp = frame()
             if (bmp == null) {
+                if (!hasReceivedFrame) onStatus("Waiting for screen…")
                 delay(300)
                 continue
             }
 
+            if (!hasReceivedFrame) {
+                hasReceivedFrame = true
+                onStatus("Screen received ${bmp.width}x${bmp.height}")
+                delay(250)
+            }
+
             when (val s = classifier.classify(bmp)) {
                 is ScreenState.Ad -> {
-                    onStatus("Handling ad / popup")
+                    onStatus("Popup/ad detected")
                     ad.runAd(bmp, s)
                 }
 
-                is ScreenState.Blank -> { onStatus("Loading…"); delay(600) }
+                is ScreenState.Blank -> { onStatus("Screen blank/loading"); delay(600) }
 
                 is ScreenState.Menu -> {
-                    onStatus("Menu — trying to resume")
-                    s.buttons.firstOrNull {
+                    val playButton = s.buttons.firstOrNull {
                         it.first in listOf("play", "continue", "resume", "retry",
                             "ok", "start", "again", "next", "yes")
-                    }?.let {
-                        motor.tap(it.second.first, it.second.second)
+                    }
+                    if (playButton != null) {
+                        onStatus("Menu: tapping ${playButton.first}")
+                        motor.tap(playButton.second.first, playButton.second.second)
                         motor.idle(900)
-                    } ?: delay(900)
+                    } else {
+                        onStatus("Menu found; no known button")
+                        delay(900)
+                    }
                 }
 
                 is ScreenState.Gameplay -> {
                     if (stepGameplay(bmp, frame)) calibFails = 0
                     else {
                         calibFails++
-                        if (calibFails > 3) onStatus("Can't find the board…")
+                        if (calibFails > 3) onStatus("Gameplay found; grid not recognized")
                         delay(700)
                     }
                 }
