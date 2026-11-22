@@ -23,7 +23,6 @@ class Agent(
 
     suspend fun loop(frame: () -> Bitmap?) {
         onStatus("Waiting for screen…")
-        var calibFails = 0
         var hasReceivedFrame = false
         while (coroutineContext.isActive) {
             val bmp = frame()
@@ -63,12 +62,7 @@ class Agent(
                 }
 
                 is ScreenState.Gameplay -> {
-                    if (stepGameplay(bmp, frame)) calibFails = 0
-                    else {
-                        calibFails++
-                        if (calibFails > 3) onStatus("Gameplay found; grid not recognized")
-                        delay(700)
-                    }
+                    if (!stepGameplay(bmp, frame)) delay(700)
                 }
             }
             delay(220)
@@ -78,31 +72,42 @@ class Agent(
     private suspend fun stepGameplay(bmp: Bitmap, frame: () -> Bitmap?): Boolean {
         var geo = geoCache
         if (geo == null) {
-            geo = frame()?.let { GameGeometry.calibrate(it) } ?: GameGeometry.calibrate(bmp)
-            if (geo == null) { onStatus("Calibrating…"); return false }
+            onStatus("Grid: scanning")
+            geo = GameGeometry.calibrate(bmp)
+            if (geo == null) {
+                onStatus("Grid: no lines")
+                return false
+            }
             geoCache = geo
-            onStatus("Board found: ${geo.cols}×${geo.rows}")
-            delay(400)
+            onStatus("Grid: ${geo.cols}x${geo.rows} found")
+            delay(300)
         } else if (!verify(geo, bmp)) {
+            onStatus("Grid: recalibrating")
             geoCache = null
             return false
         }
 
-        val reading = reader.read(bmp, geo) ?: run { geoCache = null; return false }
+        onStatus("Tray: reading pieces")
+        val reading = reader.read(bmp, geo) ?: run {
+            onStatus("Tray: no pieces")
+            geoCache = null
+            return false
+        }
+        onStatus("Tray: ${reading.pieces.size} pieces")
         val solver = BlockSolver(geo.cols, geo.rows)
         val moves = solver.solve(reading.grid, reading.pieces)
 
         if (moves == null) {
-            onStatus("Game over? Waiting for menu…")
+            onStatus("Solver: no valid move")
             delay(1200)
             return true
         }
 
-        for (m in moves) {
+        for ((index, m) in moves.withIndex()) {
             val slot = traySlot(reading, m.pieceIdx)
             val bx = geo.ox + (m.x + m.piece.w / 2f) * geo.cell
             val by = geo.oy + (m.y + m.piece.h / 2f) * geo.cell
-            onStatus("Placing ${m.piece.name} @ ${m.x},${m.y}")
+            onStatus("Moving ${index + 1}/${moves.size}")
             motor.drag(
                 slot.first / reading.bmpW, slot.second / reading.bmpH,
                 bx / reading.bmpW, by / reading.bmpH,
@@ -110,6 +115,7 @@ class Agent(
             )
             motor.idle(650)
         }
+        onStatus("Moves sent; checking")
         motor.idle(500)
         return true
     }
