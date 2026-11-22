@@ -48,6 +48,7 @@ Build #53 did not have one coordinate space shared by capture and touch:
 - Any mismatch stops Smart Play rather than continuing from stale state.
 - The floating pill and Logcat tags expose planned frame/touch endpoints, board/tray bounds, solver target and transform metadata.
 - Smart Play now honors the pill's Pause control. If paused during planning, it discards the old move and refreshes the board after resume.
+- The floating accessibility pill window is temporarily marked non-touchable during every dispatched gesture, then restored in a cancellation-safe `finally` block so it cannot intercept a tray pickup or board drop.
 
 ## Automated regression coverage
 
