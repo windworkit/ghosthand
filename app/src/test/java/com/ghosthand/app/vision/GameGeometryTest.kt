@@ -6,7 +6,7 @@ import org.junit.Test
 class GameGeometryTest {
     @Test
     fun acceptsOnlyFullyContainedEightByEightLattice() {
-        val valid = GameGeometry.Geo(20, 100, 40, 8, 8)
+        val valid = GameGeometry.Geo(20, 100, 40f, 8, 8)
         assertTrue(GameGeometry.isValid(valid, frameWidth = 340, frameHeight = 420))
         assertFalse(GameGeometry.isValid(valid, frameWidth = 339, frameHeight = 420))
         assertFalse(GameGeometry.isValid(valid, frameWidth = 340, frameHeight = 419))
@@ -14,10 +14,19 @@ class GameGeometryTest {
 
     @Test
     fun rejectsNegativeOriginWrongCellCountAndInvalidPitch() {
-        assertFalse(GameGeometry.isValid(GameGeometry.Geo(-1, 0, 40, 8, 8), 400, 400))
-        assertFalse(GameGeometry.isValid(GameGeometry.Geo(0, 0, 40, 7, 8), 400, 400))
-        assertFalse(GameGeometry.isValid(GameGeometry.Geo(0, 0, 40, 8, 9), 400, 400))
-        assertFalse(GameGeometry.isValid(GameGeometry.Geo(0, 0, 5, 8, 8), 400, 400))
+        assertFalse(GameGeometry.isValid(GameGeometry.Geo(-1, 0, 40f, 8, 8), 400, 400))
+        assertFalse(GameGeometry.isValid(GameGeometry.Geo(0, 0, 40f, 7, 8), 400, 400))
+        assertFalse(GameGeometry.isValid(GameGeometry.Geo(0, 0, 40f, 8, 9), 400, 400))
+        assertFalse(GameGeometry.isValid(GameGeometry.Geo(0, 0, 5f, 8, 8), 400, 400))
+    }
+
+    @Test
+    fun fractionalCellPitchDoesNotAccumulateIntegerRounding() {
+        val geo = GameGeometry.Geo(20, 100, 39.625f, 8, 8)
+        assertTrue(GameGeometry.isValid(geo, 340, 420))
+        val center = GameGeometry.cellCenter(geo, 7, 7)!!
+        assertEquals(317.375f, center.first, 0.001f)
+        assertEquals(397.375f, center.second, 0.001f)
     }
 
     @Test
