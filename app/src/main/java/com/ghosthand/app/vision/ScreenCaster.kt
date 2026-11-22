@@ -6,6 +6,9 @@ import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.hardware.display.DisplayManager
+import android.os.Build
+import android.view.Display
+import android.view.WindowManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
@@ -40,19 +43,41 @@ class ScreenCaster(private val ctx: Context) {
         val proj = manager.getMediaProjection(resultCode, data) ?: return
         projection = proj
 
-        val metrics = ctx.resources.displayMetrics
-        // Capture at the actual display size. Creating a half-resolution
-        // VirtualDisplay with the physical densityDpi can change the mirrored
-        // viewport rather than simply downscale it, which breaks normalized
-        // screenshot-to-gesture coordinate mapping.
+        // Resolve metrics from the active default display, not this service's
+        // possibly stale app resources. On a Fold this is the currently active
+        // cover or inner panel, depending on the physical fold state.
+        val display = ctx.getSystemService(DisplayManager::class.java)
+            .getDisplay(Display.DEFAULT_DISPLAY)
+        val displayContext = if (display != null) ctx.createDisplayContext(display) else ctx
+        val windowContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && display != null) {
+            displayContext.createWindowContext(
+                display, WindowManager.LayoutParams.TYPE_APPLICATION, null
+            )
+        } else displayContext
+        val metrics = windowContext.resources.displayMetrics
+        val bounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching {
+                windowContext.getSystemService(WindowManager::class.java)
+                    .maximumWindowMetrics.bounds
+            }.getOrNull()
+        } else null
         val realSize = Point()
-        runCatching {
-            @Suppress("DEPRECATION")
-            ctx.getSystemService(android.view.WindowManager::class.java)
-                .defaultDisplay.getRealSize(realSize)
+        if (bounds == null || bounds.width() <= 0 || bounds.height() <= 0) {
+            runCatching {
+                @Suppress("DEPRECATION")
+                display?.getRealSize(realSize)
+            }
         }
-        val width = realSize.x.takeIf { it > 0 } ?: metrics.widthPixels
-        val height = realSize.y.takeIf { it > 0 } ?: metrics.heightPixels
+        val width = bounds?.width()?.takeIf { it > 0 }
+            ?: realSize.x.takeIf { it > 0 }
+            ?: metrics.widthPixels
+        val height = bounds?.height()?.takeIf { it > 0 }
+            ?: realSize.y.takeIf { it > 0 }
+            ?: metrics.heightPixels
+        val densityDpi = windowContext.resources.configuration.densityDpi
+            .takeIf { it > 0 } ?: metrics.densityDpi
+        // Keep the VirtualDisplay at the active panel's exact dimensions.
+        // Only downscale the bitmap after ImageReader has received it.
         val frameScale = minOf(1f, MAX_CAPTURE_DIMENSION.toFloat() / maxOf(width, height))
         val frameW = (width * frameScale).toInt().coerceAtLeast(240)
         val frameH = (height * frameScale).toInt().coerceAtLeast(240)
@@ -136,7 +161,7 @@ class ScreenCaster(private val ctx: Context) {
                 "ghosthand",
                 width,
                 height,
-                metrics.densityDpi,
+                densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 imageReader.surface,
                 null,
