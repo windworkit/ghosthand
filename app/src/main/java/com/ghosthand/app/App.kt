@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -35,12 +36,38 @@ class MainActivity : ComponentActivity() {
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { res ->
-        if (res.resultCode == RESULT_OK && res.data != null) {
-            val i = Intent(this, AgentCaptureService::class.java)
-                .putExtra(AgentCaptureService.EXTRA_RESULT_CODE, res.resultCode)
-                .putExtra(AgentCaptureService.EXTRA_DATA, res.data)
+        if (res.resultCode != RESULT_OK || res.data == null) {
+            Toast.makeText(this, "Screen sharing was cancelled.", Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
+
+        val player = AutoPlayerService.instance
+        if (player == null) {
+            Toast.makeText(
+                this,
+                "GhostHand Accessibility disconnected. Re-enable it, then try again.",
+                Toast.LENGTH_LONG
+            ).show()
+            return@registerForActivityResult
+        }
+
+        // Start the visible player controls before starting screen capture. This
+        // makes an accessibility/overlay problem visible instead of failing silently.
+        player.startSmartPlay()
+
+        val i = Intent(this, AgentCaptureService::class.java)
+            .putExtra(AgentCaptureService.EXTRA_RESULT_CODE, res.resultCode)
+            .putExtra(AgentCaptureService.EXTRA_DATA, res.data)
+        try {
             ContextCompat.startForegroundService(this, i)
-            AutoPlayerService.instance?.startSmartPlay()
+        } catch (e: Exception) {
+            player.stop()
+            Toast.makeText(
+                this,
+                "GhostHand couldn't start screen capture: ${e.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+            android.util.Log.e("GhostHand", "Unable to start capture service", e)
         }
     }
 
