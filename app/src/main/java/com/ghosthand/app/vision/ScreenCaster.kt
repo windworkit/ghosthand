@@ -19,8 +19,8 @@ class ScreenCaster(private val ctx: Context) {
     companion object {
         private const val TAG = "GhostHandCapture"
         // Keep screen analysis lightweight on phones with high-resolution foldable displays.
-        private const val MAX_CAPTURE_DIMENSION = 800
-        private const val MIN_FRAME_INTERVAL_MS = 350L
+        private const val MAX_CAPTURE_DIMENSION = 720
+        private const val MIN_FRAME_INTERVAL_MS = 400L
     }
 
     private var projection: MediaProjection? = null
