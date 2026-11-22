@@ -30,6 +30,7 @@ import com.ghosthand.app.agent.AgentBus
 import com.ghosthand.app.agent.Motor
 import com.ghosthand.app.vision.Ocr
 import com.ghosthand.app.vision.ActiveDisplayResolver
+import android.hardware.display.DisplayManager
 import com.ghosthand.app.vision.FramePoint
 import com.ghosthand.app.vision.ScreenCoordinateTransform
 import com.ghosthand.app.vision.ScreenClassifier
@@ -239,10 +240,25 @@ class AutoPlayerService : AccessibilityService() {
         main.post { showPill(true) }
 
         val motor = object : Motor {
-            override suspend fun tap(x: Float, y: Float) {
-                val (w, h) = screen()
-                val j = 5f * resources.displayMetrics.density
-                dispatch(Path().apply { moveTo(x * w + off(j), y * h + off(j)) }, 48 + rnd(40))
+            override suspend fun tap(
+                point: FramePoint,
+                transform: ScreenCoordinateTransform
+            ): Boolean {
+                val active = ActiveDisplayResolver.resolve(this@AutoPlayerService) ?: return false
+                if (!transform.isCompatible(active)) return false
+                val target = transform.frameToScreen(point) ?: return false
+                if (target.x < 0f || target.y < 0f ||
+                    target.x >= active.width || target.y >= active.height
+                ) return false
+                android.util.Log.i(
+                    "GhostHandTouch",
+                    "tap frame=(${point.x},${point.y}) screen=(${target.x},${target.y}); " +
+                        transform.diagnostic()
+                )
+                return dispatch(
+                    Path().apply { moveTo(target.x, target.y) },
+                    48L + rnd(40L)
+                )
             }
             override suspend fun drag(
                 start: FramePoint,
