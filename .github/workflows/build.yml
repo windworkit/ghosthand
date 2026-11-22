@@ -15,6 +15,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.9'
+      - name: Run JVM regression tests
+        run: gradle testDebugUnitTest --no-daemon -Dorg.gradle.jvmargs=-Xmx3g
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon -Dorg.gradle.jvmargs=-Xmx3g
       - uses: actions/upload-artifact@v4
