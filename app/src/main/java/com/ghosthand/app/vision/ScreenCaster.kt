@@ -41,25 +41,22 @@ class ScreenCaster(private val ctx: Context) {
         projection = proj
 
         val metrics = ctx.resources.displayMetrics
-        // Use the same full-display coordinate space as AccessibilityService
-        // gestures. Resource display metrics can be inset by system bars,
-        // while MediaProjection mirrors the physical display.
+        // Capture at the actual display size. Creating a half-resolution
+        // VirtualDisplay with the physical densityDpi can change the mirrored
+        // viewport rather than simply downscale it, which breaks normalized
+        // screenshot-to-gesture coordinate mapping.
         val realSize = Point()
         runCatching {
             @Suppress("DEPRECATION")
             ctx.getSystemService(android.view.WindowManager::class.java)
                 .defaultDisplay.getRealSize(realSize)
         }
-        val displayW = realSize.x.takeIf { it > 0 } ?: metrics.widthPixels
-        val displayH = realSize.y.takeIf { it > 0 } ?: metrics.heightPixels
-        val sourceW = (displayW shr 1).coerceAtLeast(320)
-        val sourceH = (displayH shr 1).coerceAtLeast(240)
-        val scale = minOf(
-            1f,
-            MAX_CAPTURE_DIMENSION.toFloat() / maxOf(sourceW, sourceH).toFloat()
-        )
-        val width = (sourceW * scale).toInt().coerceAtLeast(240)
-        val height = (sourceH * scale).toInt().coerceAtLeast(240)
+        val width = realSize.x.takeIf { it > 0 } ?: metrics.widthPixels
+        val height = realSize.y.takeIf { it > 0 } ?: metrics.heightPixels
+        val frameScale = minOf(1f, MAX_CAPTURE_DIMENSION.toFloat() / maxOf(width, height))
+        val frameW = (width * frameScale).toInt().coerceAtLeast(240)
+        val frameH = (height * frameScale).toInt().coerceAtLeast(240
+)
 
         val thread = HandlerThread("GhostHandScreenCapture").apply { start() }
         captureThread = thread
@@ -108,13 +105,20 @@ class ScreenCaster(private val ctx: Context) {
                     buffer.rewind()
                     padded.copyPixelsFromBuffer(buffer)
 
-                    val frame = if (paddedWidth > width) {
+                    val fullFrame = if (paddedWidth > width) {
                         Bitmap.createBitmap(padded, 0, 0, width, height).also {
                             padded.recycle()
                         }
                     } else {
                         padded
                     }
+                    // Keep the virtual display and touch coordinate space full
+                    // resolution; reduce only the bitmap handed to vision.
+                    val frame = if (frameW != width || frameH != height) {
+                        Bitmap.createScaledBitmap(fullFrame, frameW, frameH, true).also {
+                            fullFrame.recycle()
+                        }
+                    } else fullFrame
 
                     try {
                         onFrame(frame)
