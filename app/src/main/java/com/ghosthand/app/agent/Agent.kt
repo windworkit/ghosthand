@@ -104,16 +104,26 @@ class Agent(
         }
 
         for ((index, m) in moves.withIndex()) {
-            val slot = traySlot(reading, m.pieceIdx)
-            val bx = geo.ox + (m.x + m.piece.w / 2f) * geo.cell
-            val by = geo.oy + (m.y + m.piece.h / 2f) * geo.cell
-            onStatus("Moving ${index + 1}/${moves.size}")
+            val piece = reading.pieces[m.pieceIdx]
+            val fallback = traySlot(reading, m.pieceIdx)
+            val grabX = if (piece.grabX.isFinite()) piece.grabX else fallback.first
+            val grabY = if (piece.grabY.isFinite()) piece.grabY else fallback.second
+
+            // Move the exact tile we grabbed to the same local cell in the
+            // destination. This keeps L-shaped pieces aligned instead of
+            // aiming at the potentially empty center of their bounding box.
+            val anchorX = m.x + piece.anchorCellX
+            val anchorY = m.y + piece.anchorCellY
+            val dropX = geo.ox + (anchorX + 0.5f) * geo.cell
+            val dropY = geo.oy + (anchorY + 0.5f) * geo.cell
+
+            onStatus("Dragging ${index + 1}/${moves.size}")
             motor.drag(
-                slot.first / reading.bmpW, slot.second / reading.bmpH,
-                bx / reading.bmpW, by / reading.bmpH,
-                ms = 340
+                grabX / reading.bmpW, grabY / reading.bmpH,
+                dropX / reading.bmpW, dropY / reading.bmpH,
+                ms = 700
             )
-            motor.idle(650)
+            motor.idle(900)
         }
         onStatus("Moves sent; checking")
         motor.idle(500)
