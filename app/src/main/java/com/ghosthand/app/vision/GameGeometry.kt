@@ -16,8 +16,44 @@ object GameGeometry {
     // Prefer the explicit outer frame for Woodoku-style 8x8 boards.
     // The line detector can mistake internal grid seams for the board edges
     // and return a plausible-looking but incorrect 10x6 (or similar) grid.
-    fun calibrate(bmp: Bitmap): Geo? =
-        calibrateFramedSquare(bmp) ?: calibrateGridLines(bmp)
+    fun calibrate(bmp: Bitmap): Geo? {
+        val candidate = calibrateFramedSquare(bmp) ?: calibrateGridLines(bmp)
+        return candidate?.takeIf {
+            it.cols == 8 && it.rows == 8 && isValid(it, bmp.width, bmp.height)
+        }
+    }
+
+    /** Strictly validate the playable lattice; no edge clamping or 8% overflow. */
+    fun isValid(geo: Geo, frameWidth: Int, frameHeight: Int): Boolean {
+        if (frameWidth <= 0 || frameHeight <= 0 ||
+            geo.cols != 8 || geo.rows != 8 || geo.cell < 6 ||
+            geo.ox < 0 || geo.oy < 0
+        ) return false
+
+        val right = geo.ox.toLong() + geo.cols.toLong() * geo.cell
+        val bottom = geo.oy.toLong() + geo.rows.toLong() * geo.cell
+        if (right > frameWidth || bottom > frameHeight) return false
+
+        // Explicitly check every cell center and its complete cell bounds.
+        for (row in 0 until geo.rows) for (col in 0 until geo.cols) {
+            val left = geo.ox + col * geo.cell
+            val top = geo.oy + row * geo.cell
+            val cx = left + geo.cell * 0.5f
+            val cy = top + geo.cell * 0.5f
+            if (left < 0 || top < 0 ||
+                left + geo.cell > frameWidth || top + geo.cell > frameHeight ||
+                cx !in 0f..frameWidth.toFloat() || cy !in 0f..frameHeight.toFloat()
+            ) return false
+        }
+        return true
+    }
+
+    /** Center of a playable cell in captured-frame pixel coordinates. */
+    fun cellCenter(geo: Geo, col: Int, row: Int): Pair<Float, Float>? {
+        if (col !in 0 until geo.cols || row !in 0 until geo.rows || geo.cell <= 0) return null
+        return (geo.ox + (col + 0.5f) * geo.cell) to
+            (geo.oy + (row + 0.5f) * geo.cell)
+    }
 
     /**
      * Original line-based calibration. Kept as the first choice for games that
@@ -241,11 +277,11 @@ object GameGeometry {
         val cell = ((playableWidth + playableHeight) / 16f).roundToInt()
         if (cell < 8) return null
 
-        val ox = (left + insetX).coerceIn(0, w - 1)
-        val oy = (bestTop + insetY).coerceIn(0, h - 1)
-        if (ox + 8 * cell > w + cell * 0.08f ||
-            oy + 8 * cell > h + cell * 0.08f
-        ) return null
+        // Do not clamp a detector result to the bitmap. That would disguise
+        // an invalid lattice and create drop centers beyond the playable frame.
+        val ox = left + insetX
+        val oy = bestTop + insetY
+        if (ox < 0 || oy < 0 || ox + 8 * cell > w || oy + 8 * cell > h) return null
 
         return Geo(ox, oy, cell, cols = 8, rows = 8)
     }
