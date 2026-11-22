@@ -58,7 +58,7 @@ class Agent(
             when (val state = classifier.classify(bmp)) {
                 is ScreenState.Ad -> {
                     onStatus("Popup/ad detected")
-                    ad.runAd(bmp, state)
+                    ad.runAd(bmp, state, capture.transform)
                 }
                 is ScreenState.Blank -> {
                     onStatus("Screen blank/loading")
@@ -73,7 +73,14 @@ class Agent(
                     }
                     if (playButton != null) {
                         onStatus("Menu: tapping ${playButton.first}")
-                        motor.tap(playButton.second.first, playButton.second.second)
+                        val point = FramePoint(
+                            playButton.second.first * bmp.width,
+                            playButton.second.second * bmp.height
+                        )
+                        if (!motor.tap(point, capture.transform)) {
+                            pauseUnsafe("Menu tap rejected by capture-to-touch validation")
+                            continue
+                        }
                         motor.idle(900)
                     } else {
                         onStatus("Menu found; no known button")
