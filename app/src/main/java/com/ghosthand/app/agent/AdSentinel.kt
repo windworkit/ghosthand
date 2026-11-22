@@ -3,30 +3,39 @@ package com.ghosthand.app.agent
 import com.ghosthand.app.vision.Ocr
 import com.ghosthand.app.vision.ScreenState
 
+/**
+ * Ad handling must be conservative. Promotional text is never a game control:
+ * do not tap install, download, play-now, rewards, or guessed screen corners.
+ * Only explicit skip/close controls supplied by the classifier may be used.
+ */
 class AdSentinel(private val ocr: Ocr, private val motor: Motor) {
-
-    private val rewardWords = listOf("claim", "reward", "continue", "collect", "ok",
-        "yes", "double", "2x", "x2", "free", "gift")
-    private val spendWords = listOf("buy", "purchase", "shop", "install", "download")
 
     suspend fun runAd(bmp: android.graphics.Bitmap, ad: ScreenState.Ad): Boolean {
         val words = ocr.words(bmp)
 
-        words.firstOrNull { w -> spendWords.any { w.text.lowercase().trim().contains(it) } }?.let {
-            val no = words.firstOrNull { w ->
-                listOf("no thanks", "later", "not now", "maybe").any { w.text.lowercase().contains(it) }
-            }
-            if (no != null) { motor.tap(no.x, no.y); motor.idle(600); return false }
+        val explicitSkip = words.firstOrNull { word ->
+            word.text.lowercase().trim().contains("skip") &&
+                word.y in 0.20f..0.96f
+        }
+        if (explicitSkip != null) {
+            motor.tap(explicitSkip.x, explicitSkip.y)
+            motor.idle(900)
+            return false
         }
 
-        words.firstOrNull { w -> rewardWords.any { w.text.lowercase().trim().contains(it) } }?.let {
-            motor.tap(it.x, it.y); motor.idle(900); return false
+        // A close glyph is safe only in the conventional top-right corner.
+        // Ignore an "X" elsewhere; it may be game art or part of an ad CTA.
+        val close = ad.closeAt?.takeIf { (x, y) ->
+            x >= 0.78f && y <= 0.24f
+        }
+        if (close != null) {
+            motor.tap(close.first, close.second)
+            motor.idle(800)
+            return false
         }
 
-        ad.skipAt?.let { motor.tap(it.first, it.second); motor.idle(800); return false }
-
-        ad.closeAt?.let { motor.tap(it.first, it.second); motor.idle(700); return false }
-        motor.tap(0.94f, 0.05f)
+        // No safe dismissal control was recognized. Waiting is preferable to
+        // accidentally opening an advertised game or purchasing/installing it.
         motor.idle(1400)
         return false
     }
