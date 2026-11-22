@@ -144,7 +144,6 @@ class Agent(
 
         onStatus("Placement confirmed; rescanning")
         return true
-        return true
     }
 
     private fun traySlot(r: BoardReader.Reading, idx: Int): Pair<Float, Float> {
