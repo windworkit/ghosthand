@@ -192,7 +192,11 @@ class AutoPlayerService : AccessibilityService() {
         dispatch(path, st.ms)
     }
 
-    private suspend fun dispatch(path: Path, durationMs: Long): Boolean {
+    private suspend fun dispatch(
+        path: Path,
+        durationMs: Long,
+        displayId: Int = Display.DEFAULT_DISPLAY
+    ): Boolean {
         val dur = durationMs.coerceIn(40L, 60_000L)
         return withTimeoutOrNull(dur + 2500L) {
             suspendCancellableCoroutine<Boolean> { cont ->
@@ -205,7 +209,13 @@ class AutoPlayerService : AccessibilityService() {
                     }
                 }
                 val accepted = runCatching {
-                    val gesture = GestureDescription.Builder()
+                    val builder = GestureDescription.Builder()
+                    // API 30+ lets us bind the gesture to the same display
+                    // snapshot used by capture and coordinate conversion.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        builder.setDisplayId(displayId)
+                    }
+                    val gesture = builder
                         .addStroke(GestureDescription.StrokeDescription(path, 0, dur))
                         .build()
                     dispatchGesture(gesture, callback, null)
@@ -256,7 +266,8 @@ class AutoPlayerService : AccessibilityService() {
                 )
                 return dispatch(
                     Path().apply { moveTo(target.x, target.y) },
-                    48L + rnd(40L)
+                    48L + rnd(40L),
+                    active.displayId
                 )
             }
             override suspend fun drag(
@@ -294,7 +305,7 @@ class AutoPlayerService : AccessibilityService() {
                     moveTo(from.x, from.y)
                     lineTo(to.x, to.y)
                 }
-                val completed = dispatch(path, ms.coerceIn(500L, 1800L))
+                val completed = dispatch(path, ms.coerceIn(500L, 1800L), active.displayId)
                 android.util.Log.i(
                     "GhostHandTouch",
                     "gesture callback completed=$completed; " +
