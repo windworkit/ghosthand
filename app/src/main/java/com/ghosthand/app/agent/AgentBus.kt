@@ -1,10 +1,10 @@
 package com.ghosthand.app.agent
 
-import android.graphics.Bitmap
+import com.ghosthand.app.vision.CapturedFrame
 import kotlinx.coroutines.flow.MutableStateFlow
 
 object AgentBus {
-    val frame = MutableStateFlow<Bitmap?>(null)
+    val frame = MutableStateFlow<CapturedFrame?>(null)
     @Volatile var casterActive = false
-    fun push(b: Bitmap) { frame.value = b }
+    fun push(captured: CapturedFrame) { frame.value = captured }
 }
