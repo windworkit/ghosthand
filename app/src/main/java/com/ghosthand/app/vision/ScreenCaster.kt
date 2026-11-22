@@ -46,12 +46,14 @@ class ScreenCaster(private val ctx: Context) {
         // Resolve metrics from the active default display, not this service's
         // possibly stale app resources. On a Fold this is the currently active
         // cover or inner panel, depending on the physical fold state.
-        val display = ctx.getSystemService(DisplayManager::class.java)
+        val targetDisplay = ctx.getSystemService(DisplayManager::class.java)
             .getDisplay(Display.DEFAULT_DISPLAY)
-        val displayContext = if (display != null) ctx.createDisplayContext(display) else ctx
-        val windowContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && display != null) {
+        val displayContext = if (targetDisplay != null) ctx.createDisplayContext(targetDisplay) else ctx
+        val windowContext = if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && targetDisplay != null
+        ) {
             displayContext.createWindowContext(
-                display, WindowManager.LayoutParams.TYPE_APPLICATION, null
+                targetDisplay, WindowManager.LayoutParams.TYPE_APPLICATION, null
             )
         } else displayContext
         val metrics = windowContext.resources.displayMetrics
@@ -65,7 +67,7 @@ class ScreenCaster(private val ctx: Context) {
         if (bounds == null || bounds.width() <= 0 || bounds.height() <= 0) {
             runCatching {
                 @Suppress("DEPRECATION")
-                display?.getRealSize(realSize)
+                targetDisplay?.getRealSize(realSize)
             }
         }
         val width = bounds?.width()?.takeIf { it > 0 }
