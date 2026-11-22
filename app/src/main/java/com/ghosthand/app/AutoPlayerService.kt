@@ -30,7 +30,6 @@ import com.ghosthand.app.agent.AgentBus
 import com.ghosthand.app.agent.Motor
 import com.ghosthand.app.vision.Ocr
 import com.ghosthand.app.vision.ActiveDisplayResolver
-import android.hardware.display.DisplayManager
 import com.ghosthand.app.vision.FramePoint
 import com.ghosthand.app.vision.ScreenCoordinateTransform
 import com.ghosthand.app.vision.ScreenClassifier
