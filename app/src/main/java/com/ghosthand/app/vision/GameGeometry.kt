@@ -1,6 +1,9 @@
 package com.ghosthand.app.vision
 
 import android.graphics.Bitmap
+import android.graphics.Color
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 object GameGeometry {
 
@@ -10,7 +13,14 @@ object GameGeometry {
         val cols: Int, val rows: Int
     )
 
-    fun calibrate(bmp: Bitmap): Geo? {
+    fun calibrate(bmp: Bitmap): Geo? =
+        calibrateGridLines(bmp) ?: calibrateFramedSquare(bmp)
+
+    /**
+     * Original line-based calibration. Kept as the first choice for games that
+     * draw explicit grid separators.
+     */
+    private fun calibrateGridLines(bmp: Bitmap): Geo? {
         val w = bmp.width; val h = bmp.height
         val y0 = (h * PixelMath.SEARCH_TOP).toInt()
         val y1 = (h * PixelMath.SEARCH_BOTTOM).toInt()
@@ -20,18 +30,17 @@ object GameGeometry {
         val lum = Array((y1 - y0) / 2) { IntArray((x1 - x0) / 2) }
         for (j in lum.indices) for (i in lum[0].indices) {
             val p = bmp.getPixel(x0 + i * 2, y0 + j * 2)
-            lum[j][i] = (android.graphics.Color.red(p) + android.graphics.Color.green(p)
-                    + android.graphics.Color.blue(p)) / 3
+            lum[j][i] = (Color.red(p) + Color.green(p) + Color.blue(p)) / 3
         }
 
         val colStr = IntArray(lum[0].size) { i ->
             var s = 0
-            for (j in 1 until lum.size) s += kotlin.math.abs(lum[j][i] - lum[j - 1][i])
+            for (j in 1 until lum.size) s += abs(lum[j][i] - lum[j - 1][i])
             s
         }
         val rowStr = IntArray(lum.size) { j ->
             var s = 0
-            for (i in 1 until lum[0].size) s += kotlin.math.abs(lum[j][i] - lum[j][i - 1])
+            for (i in 1 until lum[0].size) s += abs(lum[j][i] - lum[j][i - 1])
             s
         }
 
@@ -43,10 +52,125 @@ object GameGeometry {
         val cw = (xLines.last() - xLines.first()) / (xLines.size - 1)
         val ch = (yLines.last() - yLines.first()) / (yLines.size - 1)
         if (cw < 6 || ch < 6 || xLines.size > 40) return null
-        if (kotlin.math.abs(cw - ch) > kotlin.math.max(cw, ch) * 0.35f) return null
+        if (abs(cw - ch) > maxOf(cw, ch) * 0.35f) return null
 
         return Geo(xLines.first() - 1, yLines.first() - 1, (cw + ch) / 2,
             xLines.size - 1, yLines.size - 1)
+    }
+
+    /**
+     * Woodoku-style boards often have no drawn grid lines: empty cells share
+     * one dark surface and the only reliable geometry is the luminous outer
+     * frame. Find that frame, then divide its square interior into 8 x 8 cells.
+     */
+    private fun calibrateFramedSquare(bmp: Bitmap): Geo? {
+        val w = bmp.width
+        val h = bmp.height
+        if (w < 180 || h < 300) return null
+
+        fun lum(x: Int, y: Int): Int {
+            val p = bmp.getPixel(x.coerceIn(0, w - 1), y.coerceIn(0, h - 1))
+            return (Color.red(p) + Color.green(p) + Color.blue(p)) / 3
+        }
+
+        fun horizontalEdge(y: Int): Float {
+            var total = 0f
+            var count = 0
+            val left = (w * 0.04f).toInt()
+            val right = (w * 0.96f).toInt()
+            for (x in left until right step 2) {
+                total += abs(lum(x, y - 2) - lum(x, y + 2)).toFloat()
+                count++
+            }
+            return total / count.coerceAtLeast(1)
+        }
+
+        val topLo = (h * 0.14f).toInt().coerceAtLeast(3)
+        val topHi = (h * 0.48f).toInt().coerceAtMost(h - 3)
+        val bottomLo = (h * 0.48f).toInt().coerceAtLeast(3)
+        val bottomHi = (h * 0.88f).toInt().coerceAtMost(h - 3)
+        if (topHi <= topLo || bottomHi <= bottomLo) return null
+
+        val topCandidates = (topLo until topHi)
+            .map { it to horizontalEdge(it) }
+            .sortedByDescending { it.second }
+            .take(24)
+        val bottomCandidates = (bottomLo until bottomHi)
+            .map { it to horizontalEdge(it) }
+            .sortedByDescending { it.second }
+            .take(24)
+
+        val targetSide = w * 0.96f
+        var top = -1
+        var bottom = -1
+        var bestPairScore = Float.NEGATIVE_INFINITY
+        for ((ty, ts) in topCandidates) for ((by, bs) in bottomCandidates) {
+            val span = (by - ty).toFloat()
+            if (span < w * 0.70f || span > w * 1.18f) continue
+            val score = ts + bs - abs(span - targetSide) * 0.035f
+            if (score > bestPairScore) {
+                bestPairScore = score
+                top = ty
+                bottom = by
+            }
+        }
+        if (top < 0 || bottom <= top || bestPairScore < 28f) return null
+
+        fun verticalEdge(x: Int): Float {
+            var total = 0f
+            var count = 0
+            val yStart = (top + (bottom - top) * 0.06f).roundToInt()
+            val yEnd = (bottom - (bottom - top) * 0.06f).roundToInt()
+            for (y in yStart until yEnd step 2) {
+                total += abs(lum(x - 2, y) - lum(x + 2, y)).toFloat()
+                count++
+            }
+            return total / count.coerceAtLeast(1)
+        }
+
+        val leftEnd = (w * 0.24f).toInt().coerceAtLeast(3)
+        val rightStart = (w * 0.76f).toInt().coerceAtMost(w - 3)
+        val leftCandidates = (2 until leftEnd)
+            .map { it to verticalEdge(it) }
+            .sortedByDescending { it.second }
+            .take(20)
+        val rightCandidates = (rightStart until w - 2)
+            .map { it to verticalEdge(it) }
+            .sortedByDescending { it.second }
+            .take(20)
+
+        var left = -1
+        var right = -1
+        var bestVerticalScore = Float.NEGATIVE_INFINITY
+        val targetHeight = (bottom - top).toFloat()
+        for ((lx, ls) in leftCandidates) for ((rx, rs) in rightCandidates) {
+            val span = (rx - lx).toFloat()
+            if (span < targetHeight * 0.72f || span > targetHeight * 1.25f) continue
+            val score = ls + rs - abs(span - targetHeight) * 0.12f
+            if (score > bestVerticalScore) {
+                bestVerticalScore = score
+                left = lx
+                right = rx
+            }
+        }
+
+        if (left < 0 || right <= left || bestVerticalScore < 18f) return null
+        val boardWidth = (right - left).toFloat()
+        val boardHeight = (bottom - top).toFloat()
+        val aspect = boardWidth / boardHeight
+        if (aspect !in 0.78f..1.22f) return null
+
+        val cell = ((boardWidth + boardHeight) / 16f).roundToInt()
+        if (cell < 8) return null
+
+        // The detected edge is the bright outer frame; step just inside it so
+        // cell-center samples land on the actual tile faces.
+        val inset = (cell * 0.06f).roundToInt().coerceAtLeast(2)
+        val ox = (left + inset).coerceIn(0, w - 1)
+        val oy = (top + inset).coerceIn(0, h - 1)
+        if (ox + 8 * cell > w + cell * 0.12f || oy + 8 * cell > h + cell * 0.12f) return null
+
+        return Geo(ox, oy, cell, cols = 8, rows = 8)
     }
 
     private fun evenlySpacedPeaks(str: IntArray, minLines: Int, minSpacing: Int): List<Int>? {
@@ -56,7 +180,7 @@ object GameGeometry {
         val picked = mutableListOf<Int>()
         for (i in idx) {
             if (str[i] < thr) break
-            if (picked.any { kotlin.math.abs(it - i) < minSpacing }) continue
+            if (picked.any { abs(it - i) < minSpacing }) continue
             picked.add(i)
             if (picked.size >= minLines + 4) break
         }
