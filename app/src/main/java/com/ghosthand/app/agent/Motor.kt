@@ -1,15 +1,24 @@
 package com.ghosthand.app.agent
 
+import com.ghosthand.app.vision.FramePoint
+import com.ghosthand.app.vision.ScreenCoordinateTransform
+
 interface Motor {
     suspend fun tap(x: Float, y: Float)
-    suspend fun drag(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long)
+
+    /** Frame-pixel drag; the implementation must map and validate both endpoints. */
+    suspend fun drag(
+        start: FramePoint,
+        end: FramePoint,
+        transform: ScreenCoordinateTransform,
+        ms: Long
+    ): Boolean
+
     suspend fun idle(ms: Long)
 
-    /**
-     * True only when the captured frame has the same aspect ratio as the
-     * physical display that receives AccessibilityService gestures. This
-     * catches app-window crops/letterboxing and stale fold-panel captures
-     * before a bad coordinate transform can send pieces off the board.
-     */
-    fun isFrameAligned(frameWidth: Int, frameHeight: Int): Boolean = true
+    fun isFrameAligned(
+        transform: ScreenCoordinateTransform,
+        frameWidth: Int,
+        frameHeight: Int
+    ): Boolean = false
 }
