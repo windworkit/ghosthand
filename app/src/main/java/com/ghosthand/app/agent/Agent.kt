@@ -89,7 +89,7 @@ class Agent(
 
         onStatus("Tray: reading pieces")
         val reading = reader.read(bmp, geo) ?: run {
-            onStatus("Tray: no pieces")
+            onStatus("Tray: no pieces — ${reader.lastTrayDiagnostic}")
             geoCache = null
             return false
         }
