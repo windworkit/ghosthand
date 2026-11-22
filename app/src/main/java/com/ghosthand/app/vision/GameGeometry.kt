@@ -219,15 +219,32 @@ object GameGeometry {
         val aspect = boardWidth / boardHeight
         if (aspect !in 0.78f..1.22f) return null
 
-        val cell = ((boardWidth + boardHeight) / 16f).roundToInt()
+        // The bright frame surrounds the playable cells; it is not itself
+        // the cell lattice. Woodoku leaves a visible dark gutter between the
+        // outer rail and the first/last cell. Using the full frame span as
+        // 8*cell makes the pitch too large and accumulates target error toward
+        // the far edge (enough to drop a piece into the neighboring cell).
+        val roughCell = ((boardWidth + boardHeight) / 16f)
+        if (roughCell < 8f) return null
+
+        // Estimate the inset independently on both axes. On this board theme
+        // the inner lattice begins about one eighth of a cell inside the rail.
+        val insetX = (roughCell * 0.125f).roundToInt().coerceAtLeast(2)
+        val insetY = (roughCell * 0.125f).roundToInt().coerceAtLeast(2)
+        val playableWidth = boardWidth - 2f * insetX
+        val playableHeight = boardHeight - 2f * insetY
+        if (playableWidth <= 0f || playableHeight <= 0f) return null
+
+        // Derive the pitch from the playable rectangle, not the decorative
+        // frame. Averaging both axes keeps the board square after capture
+        // scaling and small JPEG/edge-detection variations.
+        val cell = ((playableWidth + playableHeight) / 16f).roundToInt()
         if (cell < 8) return null
 
-        // Step just inside the detected frame so face samples avoid the rail.
-        val inset = (cell * 0.06f).roundToInt().coerceAtLeast(2)
-        val ox = (left + inset).coerceIn(0, w - 1)
-        val oy = (bestTop + inset).coerceIn(0, h - 1)
-        if (ox + 8 * cell > w + cell * 0.12f ||
-            oy + 8 * cell > h + cell * 0.12f
+        val ox = (left + insetX).coerceIn(0, w - 1)
+        val oy = (bestTop + insetY).coerceIn(0, h - 1)
+        if (ox + 8 * cell > w + cell * 0.08f ||
+            oy + 8 * cell > h + cell * 0.08f
         ) return null
 
         return Geo(ox, oy, cell, cols = 8, rows = 8)
