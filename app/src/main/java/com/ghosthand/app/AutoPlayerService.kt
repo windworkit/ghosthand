@@ -225,8 +225,9 @@ class AutoPlayerService : AccessibilityService() {
 
     fun startSmartPlay() {
         if (isRunning.value) return
-        isRunning.value = true; paused.value = false
-        statusText.value = "Agent starting…"
+        isRunning.value = true
+        paused.value = false
+        statusText.value = "Starting screen reader…"
         main.post { showPill(true) }
 
         val motor = object : Motor {
@@ -252,8 +253,15 @@ class AutoPlayerService : AccessibilityService() {
                 Agent(ocr, ScreenClassifier(ocr), AdSentinel(ocr, motor), motor) {
                     statusText.value = it
                 }.loop { AgentBus.frame.value }
+            } catch (e: CancellationException) {
+                statusText.value = "Stopped"
+                throw e
+            } catch (e: Exception) {
+                statusText.value = "Smart Play error: ${e.message ?: e.javaClass.simpleName}"
+                android.util.Log.e("GhostHand", "Smart Play agent crashed", e)
             } finally {
                 isRunning.value = false
+                paused.value = false
                 main.post { hidePill() }
             }
         }
@@ -456,7 +464,20 @@ class AutoPlayerService : AccessibilityService() {
                 else -> false
             }
         }
-        runCatching { wm().addView(frame, lp) }
+        try {
+            wm().addView(frame, lp)
+        } catch (e: Exception) {
+            pillFrame = null
+            pillLabel = null
+            pillPauseBtn = null
+            statusText.value = "Controls unavailable: ${e.javaClass.simpleName}"
+            android.util.Log.e("GhostHand", "Unable to display accessibility control pill", e)
+            Toast.makeText(
+                applicationContext,
+                "GhostHand couldn't display its controls: ${e.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun hidePill() {
