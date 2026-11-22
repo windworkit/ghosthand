@@ -1,7 +1,6 @@
 package com.ghosthand.app.agent
 
 import com.ghosthand.app.vision.Ocr
-import com.ghosthand.app.vision.CapturedFrame
 import com.ghosthand.app.vision.FramePoint
 import com.ghosthand.app.vision.ScreenCoordinateTransform
 import com.ghosthand.app.vision.ScreenState
@@ -13,7 +12,11 @@ import com.ghosthand.app.vision.ScreenState
  */
 class AdSentinel(private val ocr: Ocr, private val motor: Motor) {
 
-    suspend fun runAd(bmp: android.graphics.Bitmap, ad: ScreenState.Ad, transform: ScreenCoordinateTransform): Boolean {
+    suspend fun runAd(
+        bmp: android.graphics.Bitmap,
+        ad: ScreenState.Ad,
+        transform: ScreenCoordinateTransform
+    ): Boolean {
         val words = ocr.words(bmp)
 
         val explicitSkip = words.firstOrNull { word ->
@@ -21,7 +24,8 @@ class AdSentinel(private val ocr: Ocr, private val motor: Motor) {
                 word.y in 0.20f..0.96f
         }
         if (explicitSkip != null) {
-            if (!motor.tap(FramePoint(explicitSkip.x * bmp.width, explicitSkip.y * bmp.height), transform)) return false
+            val point = FramePoint(explicitSkip.x * bmp.width, explicitSkip.y * bmp.height)
+            if (!motor.tap(point, transform)) return false
             motor.idle(900)
             return false
         }
@@ -32,7 +36,8 @@ class AdSentinel(private val ocr: Ocr, private val motor: Motor) {
             x >= 0.78f && y <= 0.24f
         }
         if (close != null) {
-            if (!motor.tap(FramePoint(close.first * bmp.width, close.second * bmp.height), transform)) return false
+            val point = FramePoint(close.first * bmp.width, close.second * bmp.height)
+            if (!motor.tap(point, transform)) return false
             motor.idle(800)
             return false
         }
