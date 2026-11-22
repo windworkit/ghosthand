@@ -16,6 +16,10 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
             lastDiagnostic = "tray returned 0 pieces"
             return null
         }
+        if (!isValidGrid(grid) || pieces.any { !isValidPiece(it) }) {
+            lastDiagnostic = "invalid board dimensions or malformed tray shape"
+            return null
+        }
         val emptyCells = grid.sumOf { col -> col.count { !it } }
         val fitCounts = pieces.map { piece -> countPlacements(grid, piece) }
         lastDiagnostic = "empty=$emptyCells/${cols * rows}; " +
@@ -67,10 +71,37 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
         return fallback?.let { listOf(it) }
     }
 
+    /** Revalidate a solver candidate immediately before gesture dispatch. */
+    fun isLegalPlacement(
+        grid: Array<BooleanArray>,
+        piece: BoardReader.Piece,
+        x: Int,
+        y: Int
+    ): Boolean = isValidGrid(grid) && isValidPiece(piece) && fits(grid, piece, x, y)
+
+    /** Board state expected after placing one piece and clearing all completed lines. */
+    fun resultingGrid(
+        grid: Array<BooleanArray>,
+        piece: BoardReader.Piece,
+        x: Int,
+        y: Int
+    ): Array<BooleanArray>? {
+        if (!isLegalPlacement(grid, piece, x, y)) return null
+        return apply(grid, piece, x, y)
+    }
+
+    private fun isValidGrid(grid: Array<BooleanArray>): Boolean =
+        grid.size == cols && grid.all { it.size == rows }
+
+    private fun isValidPiece(piece: BoardReader.Piece): Boolean =
+        piece.w in 1..5 && piece.h in 1..5 &&
+            piece.w <= cols && piece.h <= rows &&
+            piece.cells.isNotEmpty() &&
+            piece.cells.distinct().size == piece.cells.size &&
+            piece.cells.all { (x, y) -> x in 0 until piece.w && y in 0 until piece.h }
+
     private fun countPlacements(g: Array<BooleanArray>, p: BoardReader.Piece): Int {
-        if (p.w !in 1..5 || p.h !in 1..5 || p.w > cols || p.h > rows ||
-            p.cells.isEmpty() || p.cells.any { (x, y) -> x !in 0 until p.w || y !in 0 until p.h }
-        ) return 0
+        if (!isValidGrid(g) || !isValidPiece(p)) return 0
         var count = 0
         for (x in 0..(cols - p.w)) for (y in 0..(rows - p.h)) {
             if (fits(g, p, x, y)) count++
@@ -79,17 +110,27 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
     }
 
     private fun fits(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Boolean {
-        if (x + p.w > cols || y + p.h > rows) return false
+        if (!isValidGrid(g) || !isValidPiece(p) ||
+            x < 0 || y < 0 || x + p.w > cols || y + p.h > rows
+        ) return false
         return p.cells.all { (cx, cy) -> !g[x + cx][y + cy] }
     }
 
     private fun apply(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Array<BooleanArray> {
         val n = Array(cols) { g[it].clone() }
         p.cells.forEach { (cx, cy) -> n[x + cx][y + cy] = true }
-        for (yy in 0 until rows) if ((0 until cols).all { xx -> n[xx][yy] })
-            for (xx in 0 until cols) n[xx][yy] = false
-        for (xx in 0 until cols) if ((0 until rows).all { yy -> n[xx][yy] })
-            for (yy in 0 until rows) n[xx][yy] = false
+
+        // Determine all completed rows AND columns from the same post-placement
+        // board before clearing either axis. Sequential clearing can hide a
+        // simultaneously completed column after its crossing row is erased.
+        val fullRows = (0 until rows).filter { yy ->
+            (0 until cols).all { xx -> n[xx][yy] }
+        }
+        val fullCols = (0 until cols).filter { xx ->
+            (0 until rows).all { yy -> n[xx][yy] }
+        }
+        for (yy in fullRows) for (xx in 0 until cols) n[xx][yy] = false
+        for (xx in fullCols) for (yy in 0 until rows) n[xx][yy] = false
         return n
     }
 
