@@ -4,11 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
-import android.graphics.Point
-import android.hardware.display.DisplayManager
-import android.os.Build
-import android.view.Display
-import android.view.WindowManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
@@ -36,53 +31,26 @@ class ScreenCaster(private val ctx: Context) {
     private var lastFrameAt = 0L
 
     @Synchronized
-    fun start(resultCode: Int, data: Intent, onFrame: (Bitmap) -> Unit) {
+    fun start(resultCode: Int, data: Intent, onFrame: (CapturedFrame) -> Unit) {
         stop()
 
         val manager = ctx.getSystemService(MediaProjectionManager::class.java)
         val proj = manager.getMediaProjection(resultCode, data) ?: return
         projection = proj
 
-        // Resolve metrics from the active default display, not this service's
-        // possibly stale app resources. On a Fold this is the currently active
-        // cover or inner panel, depending on the physical fold state.
-        val targetDisplay = ctx.getSystemService(DisplayManager::class.java)
-            .getDisplay(Display.DEFAULT_DISPLAY)
-        val displayContext = if (targetDisplay != null) ctx.createDisplayContext(targetDisplay) else ctx
-        val windowContext = if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && targetDisplay != null
-        ) {
-            displayContext.createWindowContext(
-                targetDisplay, WindowManager.LayoutParams.TYPE_APPLICATION, null
-            )
-        } else displayContext
-        val metrics = windowContext.resources.displayMetrics
-        val bounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            runCatching {
-                windowContext.getSystemService(WindowManager::class.java)
-                    .maximumWindowMetrics.bounds
-            }.getOrNull()
-        } else null
-        val realSize = Point()
-        if (bounds == null || bounds.width() <= 0 || bounds.height() <= 0) {
-            runCatching {
-                @Suppress("DEPRECATION")
-                targetDisplay?.getRealSize(realSize)
-            }
-        }
-        val width = bounds?.width()?.takeIf { it > 0 }
-            ?: realSize.x.takeIf { it > 0 }
-            ?: metrics.widthPixels
-        val height = bounds?.height()?.takeIf { it > 0 }
-            ?: realSize.y.takeIf { it > 0 }
-            ?: metrics.heightPixels
-        val densityDpi = windowContext.resources.configuration.densityDpi
-            .takeIf { it > 0 } ?: metrics.densityDpi
-        // Keep the VirtualDisplay at the active panel's exact dimensions.
-        // Only downscale the bitmap after ImageReader has received it.
+        // The VirtualDisplay uses the full logical display pixel bounds that
+        // AccessibilityService gestures use. WindowMetrics bounds are window
+        // geometry and are not a reliable touch-coordinate origin.
+        val activeDisplay = ActiveDisplayResolver.resolve(ctx)
+            ?: throw IllegalStateException("Unable to resolve full active-display bounds")
+        val width = activeDisplay.width
+        val height = activeDisplay.height
+        val densityDpi = activeDisplay.densityDpi
+        // Downscale only the analysis bitmap. Preserve source dimensions in the
+        // transform so the exact x/y scale can be reconstructed after rounding.
         val frameScale = minOf(1f, MAX_CAPTURE_DIMENSION.toFloat() / maxOf(width, height))
-        val frameW = (width * frameScale).toInt().coerceAtLeast(240)
-        val frameH = (height * frameScale).toInt().coerceAtLeast(240)
+        val frameW = (width * frameScale).toInt().coerceAtLeast(1)
+        val frameH = (height * frameScale).toInt().coerceAtLeast(1)
 
         val thread = HandlerThread("GhostHandScreenCapture").apply { start() }
         captureThread = thread
@@ -118,14 +86,21 @@ class ScreenCaster(private val ctx: Context) {
                     }
                     lastFrameAt = now
 
+                    // Do not guess through display rotation/resizing: the
+                    // current capture must still match the snapshot we calibrated.
+                    if (image.width != width || image.height != height) {
+                        Log.w(TAG, "Capture is ${image.width}x${image.height}; expected ${width}x${height}")
+                        return@setOnImageAvailableListener
+                    }
+
                     val plane = image.planes.firstOrNull() ?: return@setOnImageAvailableListener
                     val pixelStride = plane.pixelStride.coerceAtLeast(1)
-                    val rowPaddingBytes = (plane.rowStride - pixelStride * width).coerceAtLeast(0)
+                    val rowPaddingBytes = (plane.rowStride - pixelStride * image.width).coerceAtLeast(0)
                     val rowPaddingPixels = rowPaddingBytes / pixelStride
-                    val paddedWidth = width + rowPaddingPixels
+                    val paddedWidth = image.width + rowPaddingPixels
 
                     val padded = Bitmap.createBitmap(
-                        paddedWidth, height, Bitmap.Config.ARGB_8888
+                        paddedWidth, image.height, Bitmap.Config.ARGB_8888
                     )
                     val buffer = plane.buffer
                     buffer.rewind()
@@ -146,8 +121,13 @@ class ScreenCaster(private val ctx: Context) {
                         }
                     } else fullFrame
 
+                    val transform = ScreenCoordinateTransform.fullDisplay(
+                        frameWidth = frame.width,
+                        frameHeight = frame.height,
+                        display = activeDisplay
+                    )
                     try {
-                        onFrame(frame)
+                        onFrame(CapturedFrame(frame, transform, now))
                     } catch (e: Exception) {
                         if (!frame.isRecycled) frame.recycle()
                         throw e
