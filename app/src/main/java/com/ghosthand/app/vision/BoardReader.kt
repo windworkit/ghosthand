@@ -388,7 +388,7 @@ class BoardReader {
             // The maroon game background is saturated too, but much darker
             // than the orange, yellow and green tray tiles.
             mask[y][x] = luma >= tileLumaThreshold &&
-                high - low >= maxOf(24, high * 0.11f)
+                high - low >= maxOf(24f, high * 0.11f)
         }
 
         val minArea = maxOf(12, (geo.cell * geo.cell * 0.006f).toInt())
