@@ -43,7 +43,7 @@ class AgentCaptureService : Service() {
             AgentBus.frame.value = null
             try {
                 val newCaster = ScreenCaster(this)
-                newCaster.start(code, data) { bmp -> AgentBus.push(bmp) }
+                newCaster.start(code, data) { captured -> AgentBus.push(captured) }
                 caster = newCaster
                 AgentBus.casterActive = true
             } catch (e: Exception) {
