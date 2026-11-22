@@ -11,7 +11,6 @@ import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -207,14 +206,15 @@ class AutoPlayerService : AccessibilityService() {
     private fun off(a: Float) = if (a <= 0f) 0f else (Random.nextFloat() * 2 - 1) * a
 
     private fun screen(): Pair<Int, Int> = try {
-        if (Build.VERSION.SDK_INT >= 30) {
-            val b = wm().currentWindowMetrics.bounds
-            b.width() to b.height()
-        } else {
-            val p = Point()
-            @Suppress("DEPRECATION") wm().defaultDisplay.getRealSize(p)
-            p.x to p.y
-        }
+        // Accessibility GestureDescription coordinates are in full-display
+        // pixels. Match the full MediaProjection frame, rather than using
+        // currentWindowMetrics (which can describe an inset app window on
+        // Android 11+ and shift every Smart Play drop by the system-bar area).
+        val size = Point()
+        @Suppress("DEPRECATION")
+        wm().defaultDisplay.getRealSize(size)
+        if (size.x > 0 && size.y > 0) size.x to size.y
+        else resources.displayMetrics.widthPixels to resources.displayMetrics.heightPixels
     } catch (e: Exception) {
         resources.displayMetrics.widthPixels to resources.displayMetrics.heightPixels
     }
