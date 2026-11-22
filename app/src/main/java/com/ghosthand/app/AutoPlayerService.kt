@@ -323,6 +323,14 @@ class AutoPlayerService : AccessibilityService() {
                 return transform.isCompatible(active, frameWidth, frameHeight)
             }
             override suspend fun idle(ms: Long) = delay(ms)
+            override suspend fun awaitReady(): Boolean {
+                var pausedDuringPlanning = false
+                while (paused.value) {
+                    pausedDuringPlanning = true
+                    delay(100)
+                }
+                return pausedDuringPlanning
+            }
         }
 
         playJob = scope.launch {
