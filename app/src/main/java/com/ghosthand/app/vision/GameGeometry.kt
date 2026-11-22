@@ -88,95 +88,147 @@ object GameGeometry {
             return total / count.coerceAtLeast(1)
         }
 
-        // On portrait Woodoku captures the board sits below the score
-        // header and above the tray. Excluding the header and the first
-        // internal grid rows prevents them from being mistaken for the frame.
+        // Reduce each thick tile seam to one candidate. Without non-maximum
+        // suppression, a bright internal row can occupy most of the candidate
+        // list and hide the actual top/bottom frame.
+        fun strongestSeparated(
+            start: Int,
+            end: Int,
+            scoreAt: (Int) -> Float,
+            minDistance: Int,
+            limit: Int
+        ): List<Pair<Int, Float>> {
+            if (end <= start) return emptyList()
+            val ranked = (start until end)
+                .map { it to scoreAt(it) }
+                .sortedByDescending { it.second }
+            val selected = mutableListOf<Pair<Int, Float>>()
+            for (candidate in ranked) {
+                if (selected.none { abs(it.first - candidate.first) < minDistance }) {
+                    selected.add(candidate)
+                    if (selected.size >= limit) break
+                }
+            }
+            return selected
+        }
+
         val topLo = (h * 0.22f).toInt().coerceAtLeast(3)
         val topHi = (h * 0.45f).toInt().coerceAtMost(h - 3)
         val bottomLo = (h * 0.58f).toInt().coerceAtLeast(3)
         val bottomHi = (h * 0.78f).toInt().coerceAtMost(h - 3)
         if (topHi <= topLo || bottomHi <= bottomLo) return null
 
-        val topCandidates = (topLo until topHi)
-            .map { it to horizontalEdge(it) }
-            .sortedByDescending { it.second }
-            .take(24)
-        val bottomCandidates = (bottomLo until bottomHi)
-            .map { it to horizontalEdge(it) }
-            .sortedByDescending { it.second }
-            .take(24)
+        val separation = (w * 0.015f).roundToInt().coerceIn(6, 14)
+        val topCandidates = strongestSeparated(
+            topLo, topHi, ::horizontalEdge, separation, 12
+        )
+        val bottomCandidates = strongestSeparated(
+            bottomLo, bottomHi, ::horizontalEdge, separation, 12
+        )
+        if (topCandidates.isEmpty() || bottomCandidates.isEmpty()) return null
 
-        val targetSide = w * 0.96f
-        var top = -1
-        var bottom = -1
-        var bestPairScore = Float.NEGATIVE_INFINITY
-        for ((ty, ts) in topCandidates) for ((by, bs) in bottomCandidates) {
-            val span = (by - ty).toFloat()
-            if (span < w * 0.70f || span > w * 1.18f) continue
-            val score = ts + bs - abs(span - targetSide) * 0.10f
-            if (score > bestPairScore) {
-                bestPairScore = score
-                top = ty
-                bottom = by
-            }
-        }
-        if (top < 0 || bottom <= top || bestPairScore < 28f) return null
+        data class Rails(
+            val left: Int,
+            val right: Int,
+            val leftStrength: Float,
+            val rightStrength: Float,
+            val score: Float
+        )
 
-        fun verticalEdge(x: Int): Float {
-            var total = 0f
-            var count = 0
+        // Verify every horizontal-edge pair against the two vertical rails.
+        // The old detector chose the strongest horizontal pair first. In this
+        // game, a bright internal tile row plus the tray edge can look stronger
+        // than the real board frame, producing a rectangle shifted off-board.
+        fun findVerticalRails(top: Int, bottom: Int): Rails? {
             val yStart = (top + (bottom - top) * 0.06f).roundToInt()
             val yEnd = (bottom - (bottom - top) * 0.06f).roundToInt()
-            for (y in yStart until yEnd step 2) {
-                total += abs(lum(x - 2, y) - lum(x + 2, y)).toFloat()
-                count++
+            if (yEnd <= yStart + 4) return null
+
+            fun verticalEdge(x: Int): Float {
+                var total = 0f
+                var count = 0
+                for (y in yStart until yEnd step 2) {
+                    total += abs(lum(x - 2, y) - lum(x + 2, y)).toFloat()
+                    count++
+                }
+                return total / count.coerceAtLeast(1)
             }
-            return total / count.coerceAtLeast(1)
+
+            val leftEnd = (w * 0.12f).toInt().coerceAtLeast(3)
+            val rightStart = (w * 0.88f).toInt().coerceAtMost(w - 3)
+            val leftCandidates = (2 until leftEnd)
+                .map { it to verticalEdge(it) }
+                .sortedByDescending { it.second }
+                .take(12)
+            val rightCandidates = (rightStart until w - 2)
+                .map { it to verticalEdge(it) }
+                .sortedByDescending { it.second }
+                .take(12)
+
+            var best: Rails? = null
+            val targetHeight = (bottom - top).toFloat()
+            for ((lx, ls) in leftCandidates) for ((rx, rs) in rightCandidates) {
+                val span = (rx - lx).toFloat()
+                if (span < targetHeight * 0.72f || span > targetHeight * 1.25f) continue
+                if (ls < 8f || rs < 8f) continue
+                val score = ls + rs - abs(span - targetHeight) * 0.12f
+                if (best == null || score > best.score) {
+                    best = Rails(lx, rx, ls, rs, score)
+                }
+            }
+            return best
         }
 
-        // Restrict the vertical-edge search to the outside rails. If the
-        // search begins too far inward, a strong internal column can win.
-        val leftEnd = (w * 0.12f).toInt().coerceAtLeast(3)
-        val rightStart = (w * 0.88f).toInt().coerceAtMost(w - 3)
-        val leftCandidates = (2 until leftEnd)
-            .map { it to verticalEdge(it) }
-            .sortedByDescending { it.second }
-            .take(20)
-        val rightCandidates = (rightStart until w - 2)
-            .map { it to verticalEdge(it) }
-            .sortedByDescending { it.second }
-            .take(20)
+        val targetSide = w * 0.96f
+        var bestTop = -1
+        var bestBottom = -1
+        var bestRails: Rails? = null
+        var bestScore = Float.NEGATIVE_INFINITY
 
-        var left = -1
-        var right = -1
-        var bestVerticalScore = Float.NEGATIVE_INFINITY
-        val targetHeight = (bottom - top).toFloat()
-        for ((lx, ls) in leftCandidates) for ((rx, rs) in rightCandidates) {
-            val span = (rx - lx).toFloat()
-            if (span < targetHeight * 0.72f || span > targetHeight * 1.25f) continue
-            val score = ls + rs - abs(span - targetHeight) * 0.12f
-            if (score > bestVerticalScore) {
-                bestVerticalScore = score
-                left = lx
-                right = rx
+        for ((top, topStrength) in topCandidates) {
+            if (topStrength < 12f) continue
+            for ((bottom, bottomStrength) in bottomCandidates) {
+                if (bottomStrength < 10f) continue
+                val height = (bottom - top).toFloat()
+                if (height < w * 0.70f || height > w * 1.18f) continue
+
+                val rails = findVerticalRails(top, bottom) ?: continue
+                val width = (rails.right - rails.left).toFloat()
+                val horizontalScore =
+                    topStrength + bottomStrength - abs(height - targetSide) * 0.10f
+                // Explicitly prefer a square perimeter. This rejects a
+                // plausible-looking internal row/tray-edge pairing when its
+                // side rails do not enclose the same-sized board.
+                val squarePenalty = abs(width - height) * 0.25f
+                val score = horizontalScore + rails.score - squarePenalty
+                if (score > bestScore) {
+                    bestScore = score
+                    bestTop = top
+                    bestBottom = bottom
+                    bestRails = rails
+                }
             }
         }
 
-        if (left < 0 || right <= left || bestVerticalScore < 18f) return null
+        val rails = bestRails ?: return null
+        if (bestTop < 0 || bestBottom <= bestTop || bestScore < 35f) return null
+        val left = rails.left
+        val right = rails.right
         val boardWidth = (right - left).toFloat()
-        val boardHeight = (bottom - top).toFloat()
+        val boardHeight = (bestBottom - bestTop).toFloat()
         val aspect = boardWidth / boardHeight
         if (aspect !in 0.78f..1.22f) return null
 
         val cell = ((boardWidth + boardHeight) / 16f).roundToInt()
         if (cell < 8) return null
 
-        // The detected edge is the bright outer frame; step just inside it so
-        // cell-center samples land on the actual tile faces.
+        // Step just inside the detected frame so face samples avoid the rail.
         val inset = (cell * 0.06f).roundToInt().coerceAtLeast(2)
         val ox = (left + inset).coerceIn(0, w - 1)
-        val oy = (top + inset).coerceIn(0, h - 1)
-        if (ox + 8 * cell > w + cell * 0.12f || oy + 8 * cell > h + cell * 0.12f) return null
+        val oy = (bestTop + inset).coerceIn(0, h - 1)
+        if (ox + 8 * cell > w + cell * 0.12f ||
+            oy + 8 * cell > h + cell * 0.12f
+        ) return null
 
         return Geo(ox, oy, cell, cols = 8, rows = 8)
     }
