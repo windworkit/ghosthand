@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
@@ -40,8 +41,19 @@ class ScreenCaster(private val ctx: Context) {
         projection = proj
 
         val metrics = ctx.resources.displayMetrics
-        val sourceW = (metrics.widthPixels shr 1).coerceAtLeast(320)
-        val sourceH = (metrics.heightPixels shr 1).coerceAtLeast(240)
+        // Use the same full-display coordinate space as AccessibilityService
+        // gestures. Resource display metrics can be inset by system bars,
+        // while MediaProjection mirrors the physical display.
+        val realSize = Point()
+        runCatching {
+            @Suppress("DEPRECATION")
+            ctx.getSystemService(android.view.WindowManager::class.java)
+                .defaultDisplay.getRealSize(realSize)
+        }
+        val displayW = realSize.x.takeIf { it > 0 } ?: metrics.widthPixels
+        val displayH = realSize.y.takeIf { it > 0 } ?: metrics.heightPixels
+        val sourceW = (displayW shr 1).coerceAtLeast(320)
+        val sourceH = (displayH shr 1).coerceAtLeast(240)
         val scale = minOf(
             1f,
             MAX_CAPTURE_DIMENSION.toFloat() / maxOf(sourceW, sourceH).toFloat()
