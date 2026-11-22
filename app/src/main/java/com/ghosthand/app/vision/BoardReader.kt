@@ -125,6 +125,12 @@ class BoardReader {
      * entire background for colored puzzle tiles. Sampling the clear border
      * lets us demand a strong luminance contrast over the current game theme.
      */
+    /**
+     * Estimate the tray backdrop as an RGB color, not a single luminance.
+     * Woodoku's blue backdrop can be brighter than its dark-red tray tiles,
+     * so a fixed brightness threshold makes those perfectly valid pieces
+     * disappear. Per-channel medians preserve the theme color for comparison.
+     */
     private fun estimateTrayBackground(
         bmp: Bitmap, left: Int, top: Int, right: Int, bottom: Int
     ): Int {
@@ -132,25 +138,53 @@ class BoardReader {
         val r = (right - 1).coerceIn(l + 1, bmp.width - 1)
         val t = top.coerceIn(0, bmp.height - 1)
         val b = (bottom - 1).coerceIn(t + 1, bmp.height - 1)
-        val samples = mutableListOf<Int>()
+        val red = mutableListOf<Int>()
+        val green = mutableListOf<Int>()
+        val blue = mutableListOf<Int>()
         val stepX = ((r - l) / 24).coerceAtLeast(1)
         val stepY = ((b - t) / 20).coerceAtLeast(1)
 
+        fun addSample(x: Int, y: Int) {
+            val p = bmp.getPixel(x.coerceIn(l, r), y.coerceIn(t, b))
+            red.add(Color.red(p))
+            green.add(Color.green(p))
+            blue.add(Color.blue(p))
+        }
+
         for (x in l..r step stepX) {
-            for (y in listOf(t + 2, b - 2)) {
-                val p = bmp.getPixel(x, y.coerceIn(t, b))
-                samples.add((Color.red(p) + Color.green(p) + Color.blue(p)) / 3)
-            }
+            addSample(x, t + 2)
+            addSample(x, b - 2)
         }
         for (y in t..b step stepY) {
-            for (x in listOf(l + 2, r - 2)) {
-                val p = bmp.getPixel(x.coerceIn(l, r), y)
-                samples.add((Color.red(p) + Color.green(p) + Color.blue(p)) / 3)
-            }
+            addSample(l + 2, y)
+            addSample(r - 2, y)
         }
-        if (samples.isEmpty()) return 100
-        val sorted = samples.sorted()
-        return sorted[sorted.size / 2]
+        if (red.isEmpty()) return Color.rgb(67, 71, 195)
+
+        fun median(values: List<Int>): Int {
+            val sorted = values.sorted()
+            return sorted[sorted.size / 2]
+        }
+        return Color.rgb(median(red), median(green), median(blue))
+    }
+
+    /**
+     * Identify colorful tile faces by distance from the sampled game backdrop.
+     * This detects dark red tiles as well as blue/pink/orange tiles and avoids
+     * depending on absolute brightness, which changes across Woodoku themes.
+     */
+    private fun isTrayTilePixel(pixel: Int, background: Int): Boolean {
+        val r = Color.red(pixel)
+        val g = Color.green(pixel)
+        val b = Color.blue(pixel)
+        val br = Color.red(background)
+        val bg = Color.green(background)
+        val bb = Color.blue(background)
+        val distance = kotlin.math.abs(r - br) +
+            kotlin.math.abs(g - bg) +
+            kotlin.math.abs(b - bb)
+        val chroma = maxOf(r, g, b) - minOf(r, g, b)
+        return distance >= 42 && chroma >= 22
     }
 
     private fun readTrayByBands(bmp: Bitmap, geo: GameGeometry.Geo): List<Piece>? {
@@ -179,10 +213,9 @@ class BoardReader {
             val regionH = y1 - y0
             if (regionW < pitch * 1.5f) return null
 
-            val backgroundLuma = estimateTrayBackground(
+            val backgroundColor = estimateTrayBackground(
                 bmp, slotLeft, y0, slotRight, y1
             )
-            val tileLumaThreshold = maxOf(118, backgroundLuma + 12)
 
             val mask = Array(regionH) { BooleanArray(regionW) }
             val columnInk = IntArray(regionW)
@@ -190,18 +223,9 @@ class BoardReader {
 
             for (y in 0 until regionH) for (x in 0 until regionW) {
                 val pixel = bmp.getPixel(slotLeft + x, y0 + y)
-                val r = Color.red(pixel)
-                val g = Color.green(pixel)
-                val b = Color.blue(pixel)
-                val high = maxOf(r, g, b).toFloat()
-                val low = minOf(r, g, b).toFloat()
-                val luma = (r + g + b) / 3f
-                // Filter the dark maroon background while keeping shaded tile
-                // faces and the yellow/green/orange pieces at phone resolution.
-                // The game backdrop itself is saturated blue. Only keep
-                // pixels clearly brighter than that sampled background.
-                val coloredTile = luma >= tileLumaThreshold &&
-                    (high - low) >= maxOf(24f, high * 0.11f)
+                // RGB distance is essential here: the red tray tiles are
+                // darker than the blue background and fail a luma threshold.
+                val coloredTile = isTrayTilePixel(pixel, backgroundColor)
                 if (coloredTile) {
                     mask[y][x] = true
                     columnInk[x]++
@@ -381,22 +405,12 @@ class BoardReader {
 
         val regionW = x1 - x0
         val regionH = y1 - y0
-        val backgroundLuma = estimateTrayBackground(bmp, x0, y0, x1, y1)
-        val tileLumaThreshold = maxOf(118, backgroundLuma + 12)
+        val backgroundColor = estimateTrayBackground(bmp, x0, y0, x1, y1)
         val mask = Array(regionH) { BooleanArray(regionW) }
 
         for (y in 0 until regionH) for (x in 0 until regionW) {
-            val px = bmp.getPixel(x0 + x, y0 + y)
-            val r = Color.red(px)
-            val g = Color.green(px)
-            val b = Color.blue(px)
-            val high = maxOf(r, g, b)
-            val low = minOf(r, g, b)
-            val luma = (r + g + b) / 3
-            // The maroon game background is saturated too, but much darker
-            // than the orange, yellow and green tray tiles.
-            mask[y][x] = luma >= tileLumaThreshold &&
-                high - low >= maxOf(24f, high * 0.11f)
+            val pixel = bmp.getPixel(x0 + x, y0 + y)
+            mask[y][x] = isTrayTilePixel(pixel, backgroundColor)
         }
 
         val minArea = maxOf(12, (geo.cell * geo.cell * 0.006f).toInt())
