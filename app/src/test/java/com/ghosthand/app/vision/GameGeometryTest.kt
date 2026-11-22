@@ -21,6 +21,27 @@ class GameGeometryTest {
     }
 
     @Test
+    fun squareCellPitchRejectsDistortedAndNonFiniteGeometry() {
+        assertTrue(GameGeometry.hasSquareCellPitch(30f, 31f))
+        assertFalse(GameGeometry.hasSquareCellPitch(30f, 40f))
+        assertFalse(GameGeometry.hasSquareCellPitch(Float.NaN, 30f))
+        assertFalse(GameGeometry.hasSquareCellPitch(30f, Float.POSITIVE_INFINITY))
+    }
+
+    @Test
+    fun uniformSpacingRejectsMisdetectedDecorativeLines() {
+        assertTrue(GameGeometry.hasUniformSpacing(
+            listOf(10, 50, 90, 130, 170, 210, 250, 290, 330)
+        ))
+        assertFalse(GameGeometry.hasUniformSpacing(
+            listOf(10, 50, 90, 135, 170, 210, 250, 290, 330)
+        ))
+        assertFalse(GameGeometry.hasUniformSpacing(
+            listOf(10, 50, 90, 90, 170, 210, 250, 290, 330)
+        ))
+    }
+
+    @Test
     fun computesCellCentersFromOneValidatedLattice() {
         val geo = GameGeometry.Geo(20, 100, 40, 8, 8)
         assertEquals(120f to 240f, GameGeometry.cellCenter(geo, 2, 3))
