@@ -188,7 +188,7 @@ class BoardReader {
         if (y1 - y0 < geo.cell * 0.7f) return null
 
         val boardLeft = geo.ox.toFloat()
-        val boardWidth = geo.cols * geo.cell.toFloat()
+        val boardWidth = geo.cols * geo.cell
         val pitch = geo.cell * 0.39f
         if (pitch < 4f || boardWidth <= 0f) return null
 
