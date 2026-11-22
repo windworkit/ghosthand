@@ -276,6 +276,18 @@ class AutoPlayerService : AccessibilityService() {
                 dispatch(path, ms.coerceIn(500, 1800))
                 delay(220)
             }
+            override fun isFrameAligned(frameWidth: Int, frameHeight: Int): Boolean {
+                if (frameWidth <= 0 || frameHeight <= 0) return false
+                val (displayWidth, displayHeight) = screen()
+                if (displayWidth <= 0 || displayHeight <= 0) return false
+                val frameAspect = frameWidth.toFloat() / frameHeight
+                val displayAspect = displayWidth.toFloat() / displayHeight
+                val relativeError = kotlin.math.abs(frameAspect - displayAspect) / displayAspect
+                // Full-display capture should match closely. Refuse to drag
+                // when Android has centered/letterboxed an app-only capture or
+                // when the Fold changed panels after capture began.
+                return relativeError <= 0.015f
+            }
             override suspend fun idle(ms: Long) = delay(ms)
         }
 
