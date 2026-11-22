@@ -211,9 +211,15 @@ class BoardReader {
 
             val xBands = projectionBands(columnInk, pitch)
             val yBands = projectionBands(rowInk, pitch)
+
+            // Woodoku Blast removes tray pieces as they are played. Empty slots
+            // are normal and must not invalidate the entire tray scan. Earlier
+            // logic required all three slots to contain tiles, so after the
+            // user's first move it incorrectly reported "no tray pieces".
+            if (xBands.isEmpty() && yBands.isEmpty()) continue
             if (xBands.isEmpty() || yBands.isEmpty() ||
                 xBands.size > 5 || yBands.size > 5
-            ) return null
+            ) continue
 
             val detectedCells = mutableSetOf<Pair<Int, Int>>()
             for (cy in yBands.indices) for (cx in xBands.indices) {
@@ -267,7 +273,9 @@ class BoardReader {
             )
         }
 
-        return pieces.takeIf { it.size == 3 }
+        // One or more tray slots may be empty after a piece was used.
+        // Accept any detected pieces, but reject a fully empty/noisy scan.
+        return pieces.takeIf { it.isNotEmpty() && it.size <= 3 }
     }
 
     private fun projectionBands(profile: IntArray, pitch: Float): List<Float> {
