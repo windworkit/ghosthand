@@ -110,7 +110,8 @@ class Agent(
             geoCache = null
             return false
         }
-        onStatus("Tray: ${reading.pieces.size} pieces")
+        val traySummary = reading.pieces.joinToString(", ") { "${it.w}x${it.h}" }
+        onStatus("Tray ${reading.pieces.size}: $traySummary")
         val solver = BlockSolver(geo.cols, geo.rows)
         val moves = solver.solve(reading.grid, reading.pieces)
 
@@ -136,7 +137,7 @@ class Agent(
         val dropX = geo.ox + (anchorX + 0.5f) * geo.cell
         val dropY = geo.oy + (anchorY + 0.5f) * geo.cell
 
-        onStatus("Dragging piece ${m.pieceIdx + 1}")
+        onStatus("Plan p${m.pieceIdx + 1} -> c${anchorX + 1} r${anchorY + 1}")
         motor.drag(
             grabX / reading.bmpW, grabY / reading.bmpH,
             dropX / reading.bmpW, dropY / reading.bmpH,
