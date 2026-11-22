@@ -30,10 +30,26 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
         }
         if (best != null) return best
 
-        val p = pieces.firstOrNull() ?: return null
-        for (x in 0..cols - p.w) for (y in 0..rows - p.h)
-            if (fits(grid, p, x, y)) return listOf(Move(0, p, x, y))
-        return null
+        // When all three pieces cannot be played in one uninterrupted
+        // sequence, still make progress with the best individual move.
+        // Do not assume pieces[0] fits: the first tray slot may be a large
+        // square while a line or L-piece elsewhere in the tray can still fit.
+        var fallback: Move? = null
+        var fallbackScore = Long.MIN_VALUE
+        for (pieceIdx in pieces.indices) {
+            val piece = pieces[pieceIdx]
+            if (piece.w > cols || piece.h > rows) continue
+            val remaining = pieces.filterIndexed { index, _ -> index != pieceIdx }
+            for (x in 0..(cols - piece.w)) for (y in 0..(rows - piece.h)) {
+                if (!fits(grid, piece, x, y)) continue
+                val score = scorePlacement(grid, piece, x, y, remaining)
+                if (score > fallbackScore) {
+                    fallbackScore = score
+                    fallback = Move(pieceIdx, piece, x, y)
+                }
+            }
+        }
+        return fallback?.let { listOf(it) }
     }
 
     private fun fits(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Boolean {
