@@ -295,6 +295,11 @@ class AutoPlayerService : AccessibilityService() {
                     lineTo(to.x, to.y)
                 }
                 val completed = dispatch(path, ms.coerceIn(500L, 1800L))
+                android.util.Log.i(
+                    "GhostHandTouch",
+                    "gesture callback completed=$completed; " +
+                        "screenStart=(${from.x},${from.y}) screenEnd=(${to.x},${to.y})"
+                )
                 if (completed) delay(220)
                 return completed
             }
@@ -314,7 +319,11 @@ class AutoPlayerService : AccessibilityService() {
                 Agent(ocr, ScreenClassifier(ocr), AdSentinel(ocr, motor), motor) {
                     statusText.value = it
                     main.post {
-                        pillLabel?.text = if (it.startsWith("No fit:")) it.take(64) else it.take(28)
+                        pillLabel?.text = when {
+                            it.startsWith("Plan ") -> it.replace("; ", "\n").take(220)
+                            it.startsWith("No fit:") -> it.take(64)
+                            else -> it.take(28)
+                        }
                     }
                 }.loop { AgentBus.frame.value }
             } catch (e: CancellationException) {
@@ -483,6 +492,8 @@ class AutoPlayerService : AccessibilityService() {
         }
         val label = TextView(this).apply {
             text = "Starting…"; textSize = 10f
+            maxWidth = dp(250)
+            maxLines = 5
             setTextColor(0xFFF2AE3C.toInt()); typeface = Typeface.MONOSPACE
         }
         pillLabel = label
