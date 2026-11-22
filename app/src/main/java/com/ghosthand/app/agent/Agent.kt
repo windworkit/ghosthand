@@ -20,11 +20,18 @@ class Agent(
 ) {
     private var geoCache: GameGeometry.Geo? = null
     private val reader = BoardReader()
+    // Stop blind retries when the game did not accept a placement.
+    private var stopOnFailedPlacement = false
 
     suspend fun loop(frame: () -> Bitmap?) {
         onStatus("Waiting for screen…")
+        stopOnFailedPlacement = false
         var hasReceivedFrame = false
         while (coroutineContext.isActive) {
+            if (stopOnFailedPlacement) {
+                delay(400)
+                continue
+            }
             val bmp = frame()
             if (bmp == null) {
                 if (!hasReceivedFrame) onStatus("Waiting for screen…")
@@ -103,30 +110,40 @@ class Agent(
             return true
         }
 
-        for ((index, m) in moves.withIndex()) {
-            val piece = reading.pieces[m.pieceIdx]
-            val fallback = traySlot(reading, m.pieceIdx)
-            val grabX = if (piece.grabX.isFinite()) piece.grabX else fallback.first
-            val grabY = if (piece.grabY.isFinite()) piece.grabY else fallback.second
+        // Execute one move per fresh board read. The previous implementation
+        // sent all three moves based on a single screenshot; after a failed or
+        // misaligned drop, every later destination became stale and could be
+        // impossible. Re-solve from the board after each accepted placement.
+        val m = moves.first()
+        val piece = reading.pieces[m.pieceIdx]
+        val fallback = traySlot(reading, m.pieceIdx)
+        val grabX = if (piece.grabX.isFinite()) piece.grabX else fallback.first
+        val grabY = if (piece.grabY.isFinite()) piece.grabY else fallback.second
 
-            // Move the exact tile we grabbed to the same local cell in the
-            // destination. This keeps L-shaped pieces aligned instead of
-            // aiming at the potentially empty center of their bounding box.
-            val anchorX = m.x + piece.anchorCellX
-            val anchorY = m.y + piece.anchorCellY
-            val dropX = geo.ox + (anchorX + 0.5f) * geo.cell
-            val dropY = geo.oy + (anchorY + 0.5f) * geo.cell
+        // Align the detected pickup tile to its corresponding destination cell.
+        val anchorX = m.x + piece.anchorCellX
+        val anchorY = m.y + piece.anchorCellY
+        val dropX = geo.ox + (anchorX + 0.5f) * geo.cell
+        val dropY = geo.oy + (anchorY + 0.5f) * geo.cell
 
-            onStatus("Dragging ${index + 1}/${moves.size}")
-            motor.drag(
-                grabX / reading.bmpW, grabY / reading.bmpH,
-                dropX / reading.bmpW, dropY / reading.bmpH,
-                ms = 700
-            )
-            motor.idle(900)
+        onStatus("Dragging piece ${m.pieceIdx + 1}")
+        motor.drag(
+            grabX / reading.bmpW, grabY / reading.bmpH,
+            dropX / reading.bmpW, dropY / reading.bmpH,
+            ms = 1000
+        )
+        motor.idle(900)
+
+        val afterBmp = frame()
+        val after = afterBmp?.let { reader.read(it, geo) }
+        if (after == null || gridsEqual(reading.grid, after.grid)) {
+            stopOnFailedPlacement = true
+            onStatus("Placement not detected — paused")
+            return true
         }
-        onStatus("Moves sent; checking")
-        motor.idle(500)
+
+        onStatus("Placement confirmed; rescanning")
+        return true
         return true
     }
 
@@ -138,6 +155,13 @@ class Agent(
         val cx = boardL + slotW * (idx + 0.5f)
         val cy = geo.oy + geo.rows * geo.cell + geo.cell * 1.3f
         return cx to cy
+    }
+
+    private fun gridsEqual(a: Array<BooleanArray>, b: Array<BooleanArray>): Boolean {
+        if (a.size != b.size) return false
+        return a.indices.all { x ->
+            a[x].size == b[x].size && a[x].indices.all { y -> a[x][y] == b[x][y] }
+        }
     }
 
     private fun verify(geo: GameGeometry.Geo, bmp: Bitmap): Boolean {
