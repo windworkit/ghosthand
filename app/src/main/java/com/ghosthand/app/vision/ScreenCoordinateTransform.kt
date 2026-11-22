@@ -31,6 +31,7 @@ data class ScreenCoordinateTransform(
     val displayWidth: Int,
     val displayHeight: Int,
     val displayRotation: Int,
+    val displayDensityDpi: Int,
     val captureLeftPx: Float,
     val captureTopPx: Float,
     val captureWidthPx: Float,
@@ -79,13 +80,14 @@ data class ScreenCoordinateTransform(
         return current.displayId == displayId &&
             current.width == displayWidth &&
             current.height == displayHeight &&
-            current.rotation == displayRotation
+            current.rotation == displayRotation &&
+            current.densityDpi == displayDensityDpi
     }
 
     private fun isStructurallyMappable(): Boolean {
         if (frameWidth <= 0 || frameHeight <= 0 ||
             sourceWidth <= 0 || sourceHeight <= 0 ||
-            displayWidth <= 0 || displayHeight <= 0 ||
+            displayWidth <= 0 || displayHeight <= 0 || displayDensityDpi <= 0 ||
             displayId < 0 || displayRotation !in 0..3
         ) return false
         if (!captureLeftPx.isFinite() || !captureTopPx.isFinite() ||
@@ -117,6 +119,7 @@ data class ScreenCoordinateTransform(
             displayWidth = display.width,
             displayHeight = display.height,
             displayRotation = display.rotation,
+            displayDensityDpi = display.densityDpi,
             captureLeftPx = 0f,
             captureTopPx = 0f,
             captureWidthPx = display.width.toFloat(),
