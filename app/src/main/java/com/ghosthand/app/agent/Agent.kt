@@ -98,7 +98,7 @@ class Agent(
         val moves = solver.solve(reading.grid, reading.pieces)
 
         if (moves == null) {
-            onStatus("Solver: no valid move")
+            onStatus("No fit: ${solver.lastDiagnostic}")
             delay(1200)
             return true
         }
