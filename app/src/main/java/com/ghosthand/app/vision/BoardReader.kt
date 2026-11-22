@@ -17,7 +17,8 @@ class BoardReader {
         val grabY: Float = Float.NaN,
         // That pickup tile's coordinate inside the piece's normalized shape.
         val anchorCellX: Int = 0,
-        val anchorCellY: Int = 0
+        val anchorCellY: Int = 0,
+        val trayBounds: FrameRect? = null
     )
 
     data class Reading(
@@ -282,17 +283,23 @@ class BoardReader {
             val grabY = y0 + yBands[anchor.second]
             val anchorX = anchor.first - minX
             val anchorY = anchor.second - minY
+            val trayBounds = FrameRect(
+                left = slotLeft + xBands[minX] - pitch * 0.5f,
+                top = y0 + yBands[minY] - pitch * 0.5f,
+                right = slotLeft + xBands[maxX] + pitch * 0.5f,
+                bottom = y0 + yBands[maxY] + pitch * 0.5f
+            )
 
             pieces.add(
                 if (known != null) {
                     Piece(
                         known.name, known.cells, known.w, known.h,
-                        grabX, grabY, anchorX, anchorY
+                        grabX, grabY, anchorX, anchorY, trayBounds
                     )
                 } else {
                     Piece(
                         "slot$slot", normalized.toList(), width, height,
-                        grabX, grabY, anchorX, anchorY
+                        grabX, grabY, anchorX, anchorY, trayBounds
                     )
                 }
             )
@@ -544,17 +551,23 @@ class BoardReader {
             val anchorCellY = anchor.y - minY
             val grabX = xCenters[anchor.x]
             val grabY = yCenters[anchor.y]
+            val trayBounds = FrameRect(
+                left = xCenters[minX] - typicalW * 0.5f,
+                top = yCenters[minY] - typicalH * 0.5f,
+                right = xCenters[maxX] + typicalW * 0.5f,
+                bottom = yCenters[maxY] + typicalH * 0.5f
+            )
 
             pieces.add(
                 if (known != null) {
                     Piece(
                         known.name, known.cells, known.w, known.h,
-                        grabX, grabY, anchorCellX, anchorCellY
+                        grabX, grabY, anchorCellX, anchorCellY, trayBounds
                     )
                 } else {
                     Piece(
                         "slot$slot", normalized.toList(), width, height,
-                        grabX, grabY, anchorCellX, anchorCellY
+                        grabX, grabY, anchorCellX, anchorCellY, trayBounds
                     )
                 }
             )
