@@ -237,13 +237,22 @@ class AutoPlayerService : AccessibilityService() {
                 dispatch(Path().apply { moveTo(x * w + off(j), y * h + off(j)) }, 48 + rnd(40))
             }
             override suspend fun drag(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long) {
-                val (w, h) = screen(); val j = 5f * resources.displayMetrics.density
-                dispatch(Path().apply {
-                    moveTo(x1 * w + off(j), y1 * h + off(j))
-                    val mx = ((x1 + x2) / 2) * w; val my = ((y1 + y2) / 2) * h
-                    quadTo(mx, my, x2 * w + off(j), y2 * h + off(j))
-                }, ms.coerceIn(120, 2000))
-                delay(140)
+                val (w, h) = screen()
+
+                // Smart Play relies on cell-level placement. Random offsets or
+                // a short drag can start outside a tile and cause a tap instead.
+                // Use exact normalized coordinates and a deliberate straight drag.
+                val startX = x1.coerceIn(0.01f, 0.99f) * w
+                val startY = y1.coerceIn(0.01f, 0.99f) * h
+                val endX = x2.coerceIn(0.01f, 0.99f) * w
+                val endY = y2.coerceIn(0.01f, 0.99f) * h
+                val path = Path().apply {
+                    moveTo(startX, startY)
+                    lineTo(endX, endY)
+                }
+
+                dispatch(path, ms.coerceIn(500, 1800))
+                delay(220)
             }
             override suspend fun idle(ms: Long) = delay(ms)
         }
