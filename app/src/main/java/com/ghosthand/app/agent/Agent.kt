@@ -31,6 +31,10 @@ class Agent(
         var hasReceivedFrame = false
 
         while (coroutineContext.isActive) {
+            if (motor.awaitReady()) {
+                geoCache = null
+                onStatus("Resumed — refreshing the screen before planning")
+            }
             if (stopOnFailedPlacement) {
                 delay(400)
                 continue
@@ -58,6 +62,7 @@ class Agent(
             when (val state = classifier.classify(bmp)) {
                 is ScreenState.Ad -> {
                     onStatus("Popup/ad detected")
+                    if (motor.awaitReady()) continue
                     ad.runAd(bmp, state, capture.transform)
                 }
                 is ScreenState.Blank -> {
@@ -77,6 +82,7 @@ class Agent(
                             playButton.second.first * bmp.width,
                             playButton.second.second * bmp.height
                         )
+                        if (motor.awaitReady()) continue
                         if (!motor.tap(point, capture.transform)) {
                             pauseUnsafe("Menu tap rejected by capture-to-touch validation")
                             continue
@@ -220,6 +226,14 @@ class Agent(
                 "touch ${screenStart.x.toInt()},${screenStart.y.toInt()} -> " +
                 "${screenEnd.x.toInt()},${screenEnd.y.toInt()}"
         )
+
+        // A pause may have been requested during vision or solving. Wait
+        // for resume, then throw away this plan and re-read the live board.
+        if (motor.awaitReady()) {
+            geoCache = null
+            onStatus("Resumed — discarding the old move and refreshing the board")
+            return false
+        }
 
         val dispatched = motor.drag(start, end, capture.transform, ms = 1000)
         if (!dispatched) {
