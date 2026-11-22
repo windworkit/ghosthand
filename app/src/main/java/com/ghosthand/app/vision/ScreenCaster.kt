@@ -55,8 +55,7 @@ class ScreenCaster(private val ctx: Context) {
         val height = realSize.y.takeIf { it > 0 } ?: metrics.heightPixels
         val frameScale = minOf(1f, MAX_CAPTURE_DIMENSION.toFloat() / maxOf(width, height))
         val frameW = (width * frameScale).toInt().coerceAtLeast(240)
-        val frameH = (height * frameScale).toInt().coerceAtLeast(240
-)
+        val frameH = (height * frameScale).toInt().coerceAtLeast(240)
 
         val thread = HandlerThread("GhostHandScreenCapture").apply { start() }
         captureThread = thread
