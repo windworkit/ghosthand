@@ -261,7 +261,9 @@ class AutoPlayerService : AccessibilityService() {
             try {
                 Agent(ocr, ScreenClassifier(ocr), AdSentinel(ocr, motor), motor) {
                     statusText.value = it
-                    main.post { pillLabel?.text = it.take(20) }
+                    main.post {
+                        pillLabel?.text = if (it.startsWith("No fit:")) it.take(64) else it.take(28)
+                    }
                 }.loop { AgentBus.frame.value }
             } catch (e: CancellationException) {
                 statusText.value = "Stopped"
