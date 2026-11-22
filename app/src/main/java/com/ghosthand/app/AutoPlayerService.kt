@@ -83,7 +83,7 @@ class AutoPlayerService : AccessibilityService() {
         instance = null
         runCatching { crossFrame?.let { wm().removeView(it) } }
         runCatching { pillFrame?.let { wm().removeView(it) } }
-        crossFrame = null; pillFrame = null
+        crossFrame = null; pillFrame = null; pillLayoutParams = null
         scope.cancel()
         super.onDestroy()
     }
@@ -192,37 +192,74 @@ class AutoPlayerService : AccessibilityService() {
         dispatch(path, st.ms)
     }
 
+    /**
+     * The floating accessibility window normally receives touches so it can
+     * be moved and its controls pressed. If it overlaps a tray tile or board
+     * cell, that window can consume a synthetic drag. Temporarily make the
+     * entire pill window non-touchable until the gesture callback settles.
+     */
+    private suspend fun setPillTouchable(touchable: Boolean) {
+        suspendCancellableCoroutine<Unit> { cont ->
+            main.post {
+                val frame = pillFrame
+                val lp = pillLayoutParams
+                if (frame != null && lp != null) {
+                    lp.flags = if (touchable) {
+                        lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                    } else {
+                        lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                    }
+                    runCatching { wm().updateViewLayout(frame, lp) }
+                        .onFailure {
+                            android.util.Log.w(
+                                "GhostHandTouch",
+                                "Unable to update pill touchability: ${it.message}"
+                            )
+                        }
+                }
+                if (cont.isActive) cont.resume(Unit)
+            }
+        }
+    }
+
     private suspend fun dispatch(
         path: Path,
         durationMs: Long,
         displayId: Int = Display.DEFAULT_DISPLAY
     ): Boolean {
         val dur = durationMs.coerceIn(40L, 60_000L)
-        return withTimeoutOrNull(dur + 2500L) {
-            suspendCancellableCoroutine<Boolean> { cont ->
-                val callback = object : GestureResultCallback() {
-                    override fun onCompleted(g: GestureDescription?) {
-                        if (cont.isActive) cont.resume(true)
+        val pillWasPresent = pillFrame != null && pillLayoutParams != null
+        if (pillWasPresent) setPillTouchable(false)
+
+        return try {
+            withTimeoutOrNull(dur + 2500L) {
+                suspendCancellableCoroutine<Boolean> { cont ->
+                    val callback = object : GestureResultCallback() {
+                        override fun onCompleted(g: GestureDescription?) {
+                            if (cont.isActive) cont.resume(true)
+                        }
+                        override fun onCancelled(g: GestureDescription?) {
+                            if (cont.isActive) cont.resume(false)
+                        }
                     }
-                    override fun onCancelled(g: GestureDescription?) {
-                        if (cont.isActive) cont.resume(false)
-                    }
+                    val accepted = runCatching {
+                        val builder = GestureDescription.Builder()
+                        // API 30+ lets us bind the gesture to the same display
+                        // snapshot used by capture and coordinate conversion.
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            builder.setDisplayId(displayId)
+                        }
+                        val gesture = builder
+                            .addStroke(GestureDescription.StrokeDescription(path, 0, dur))
+                            .build()
+                        dispatchGesture(gesture, callback, null)
+                    }.getOrDefault(false)
+                    if (!accepted && cont.isActive) cont.resume(false)
                 }
-                val accepted = runCatching {
-                    val builder = GestureDescription.Builder()
-                    // API 30+ lets us bind the gesture to the same display
-                    // snapshot used by capture and coordinate conversion.
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        builder.setDisplayId(displayId)
-                    }
-                    val gesture = builder
-                        .addStroke(GestureDescription.StrokeDescription(path, 0, dur))
-                        .build()
-                    dispatchGesture(gesture, callback, null)
-                }.getOrDefault(false)
-                if (!accepted && cont.isActive) cont.resume(false)
-            }
-        } ?: false
+            } ?: false
+        } finally {
+            if (pillWasPresent) setPillTouchable(true)
+        }
     }
 
     private suspend fun dwell() { delay(rnd2(40L, 130L)) }
@@ -496,6 +533,7 @@ class AutoPlayerService : AccessibilityService() {
     // ---------------- floating control pill ----------------
 
     private var pillFrame: LinearLayout? = null
+    private var pillLayoutParams: WindowManager.LayoutParams? = null
     private var pillLabel: TextView? = null
     private var pillPauseBtn: TextView? = null
 
@@ -546,6 +584,7 @@ class AutoPlayerService : AccessibilityService() {
                 (if (keepAwake) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0),
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.START; x = dp(16); y = dp(52) }
+        pillLayoutParams = lp
 
         var lastX = 0; var lastY = 0
         label.setOnTouchListener { _, e ->
@@ -562,6 +601,7 @@ class AutoPlayerService : AccessibilityService() {
             wm().addView(frame, lp)
         } catch (e: Exception) {
             pillFrame = null
+            pillLayoutParams = null
             pillLabel = null
             pillPauseBtn = null
             statusText.value = "Controls unavailable: ${e.javaClass.simpleName}"
@@ -576,7 +616,10 @@ class AutoPlayerService : AccessibilityService() {
 
     private fun hidePill() {
         pillFrame?.let { runCatching { wm().removeView(it) } }
-        pillFrame = null; pillLabel = null; pillPauseBtn = null
+        pillFrame = null
+        pillLayoutParams = null
+        pillLabel = null
+        pillPauseBtn = null
     }
 
     private fun wm(): WindowManager = getSystemService(WindowManager::class.java)
