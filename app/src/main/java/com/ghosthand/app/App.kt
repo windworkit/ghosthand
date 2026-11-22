@@ -3,6 +3,8 @@ package com.ghosthand.app
 import android.app.Application
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.media.projection.MediaProjectionConfig
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -73,7 +75,19 @@ class MainActivity : ComponentActivity() {
 
     fun requestProjection() {
         val mgr = getSystemService(MediaProjectionManager::class.java)
-        projectionLauncher.launch(mgr.createScreenCaptureIntent())
+        // Android 14+ otherwise offers app-window sharing. An app-only capture
+        // is cropped/centered by MediaProjection, but Smart Play gestures target
+        // the full display. Force the default display so captured pixel
+        // coordinates and AccessibilityService screen coordinates describe
+        // the same cover/inner display.
+        val captureIntent = if (Build.VERSION.SDK_INT >= 34) {
+            mgr.createScreenCaptureIntent(
+                MediaProjectionConfig.createConfigForDefaultDisplay()
+            )
+        } else {
+            mgr.createScreenCaptureIntent()
+        }
+        projectionLauncher.launch(captureIntent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
