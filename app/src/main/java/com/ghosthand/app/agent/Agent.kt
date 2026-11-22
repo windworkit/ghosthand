@@ -45,6 +45,16 @@ class Agent(
                 delay(250)
             }
 
+            // A captured app window or a stale inner/cover-panel capture can
+            // be letterboxed inside the projection surface. Never attempt a
+            // gesture unless the frame aspect matches the active touch display.
+            if (!motor.isFrameAligned(bmp.width, bmp.height)) {
+                stopOnFailedPlacement = true
+                onStatus("Capture/display mismatch — stopped safely")
+                delay(400)
+                continue
+            }
+
             when (val s = classifier.classify(bmp)) {
                 is ScreenState.Ad -> {
                     onStatus("Popup/ad detected")
