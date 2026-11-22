@@ -78,6 +78,13 @@ class ScreenCoordinateTransformTest {
     }
 
     @Test
+    fun rejectsNonUniformlyScaledFullDisplayFrame() {
+        val display = ActiveDisplaySnapshot(0, 1000, 2000, 0, 420)
+        val stretched = ScreenCoordinateTransform.fullDisplay(500, 720, display)
+        assertFalse(stretched.isCompatible(display))
+    }
+
+    @Test
     fun pointsOutsideFrameAreRejectedRatherThanClamped() {
         val display = ActiveDisplaySnapshot(0, 904, 2316, 0, 420)
         val transform = ScreenCoordinateTransform.fullDisplay(281, 720, display)
