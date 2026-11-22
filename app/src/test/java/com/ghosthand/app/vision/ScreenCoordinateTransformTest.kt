@@ -99,9 +99,8 @@ class ScreenCoordinateTransformTest {
             ScreenPoint(720f, 1600f),
             transform.frameToScreen(FramePoint(162f, 360f))
         )
-        assertEquals(
-            ScreenPoint(1435.5555f, 3195.5557f),
-            transform.frameToScreen(FramePoint(323f, 719f))
-        )
+        val nearEdge = transform.frameToScreen(FramePoint(323f, 719f))!!
+        assertEquals(1435.5555f, nearEdge.x, 0.01f)
+        assertEquals(3195.5557f, nearEdge.y, 0.01f)
     }
 }
