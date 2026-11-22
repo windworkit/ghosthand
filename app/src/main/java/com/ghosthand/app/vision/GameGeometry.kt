@@ -13,8 +13,11 @@ object GameGeometry {
         val cols: Int, val rows: Int
     )
 
+    // Prefer the explicit outer frame for Woodoku-style 8x8 boards.
+    // The line detector can mistake internal grid seams for the board edges
+    // and return a plausible-looking but incorrect 10x6 (or similar) grid.
     fun calibrate(bmp: Bitmap): Geo? =
-        calibrateGridLines(bmp) ?: calibrateFramedSquare(bmp)
+        calibrateFramedSquare(bmp) ?: calibrateGridLines(bmp)
 
     /**
      * Original line-based calibration. Kept as the first choice for games that
@@ -85,10 +88,13 @@ object GameGeometry {
             return total / count.coerceAtLeast(1)
         }
 
-        val topLo = (h * 0.14f).toInt().coerceAtLeast(3)
-        val topHi = (h * 0.48f).toInt().coerceAtMost(h - 3)
-        val bottomLo = (h * 0.48f).toInt().coerceAtLeast(3)
-        val bottomHi = (h * 0.88f).toInt().coerceAtMost(h - 3)
+        // On portrait Woodoku captures the board sits below the score
+        // header and above the tray. Excluding the header and the first
+        // internal grid rows prevents them from being mistaken for the frame.
+        val topLo = (h * 0.22f).toInt().coerceAtLeast(3)
+        val topHi = (h * 0.45f).toInt().coerceAtMost(h - 3)
+        val bottomLo = (h * 0.58f).toInt().coerceAtLeast(3)
+        val bottomHi = (h * 0.78f).toInt().coerceAtMost(h - 3)
         if (topHi <= topLo || bottomHi <= bottomLo) return null
 
         val topCandidates = (topLo until topHi)
@@ -107,7 +113,7 @@ object GameGeometry {
         for ((ty, ts) in topCandidates) for ((by, bs) in bottomCandidates) {
             val span = (by - ty).toFloat()
             if (span < w * 0.70f || span > w * 1.18f) continue
-            val score = ts + bs - abs(span - targetSide) * 0.035f
+            val score = ts + bs - abs(span - targetSide) * 0.10f
             if (score > bestPairScore) {
                 bestPairScore = score
                 top = ty
@@ -128,8 +134,10 @@ object GameGeometry {
             return total / count.coerceAtLeast(1)
         }
 
-        val leftEnd = (w * 0.24f).toInt().coerceAtLeast(3)
-        val rightStart = (w * 0.76f).toInt().coerceAtMost(w - 3)
+        // Restrict the vertical-edge search to the outside rails. If the
+        // search begins too far inward, a strong internal column can win.
+        val leftEnd = (w * 0.12f).toInt().coerceAtLeast(3)
+        val rightStart = (w * 0.88f).toInt().coerceAtMost(w - 3)
         val leftCandidates = (2 until leftEnd)
             .map { it to verticalEdge(it) }
             .sortedByDescending { it.second }
