@@ -286,7 +286,7 @@ class AutoPlayerService : AccessibilityService() {
                 color = 0xFFF2AE3C.toInt()
             }
             val dashed = Paint(stroke).apply {
-                pathEffect = DashPathEffect(floatArrayOf(dp(7).toFloat(), dp(7).toFloat()))
+                pathEffect = DashPathEffect(floatArrayOf(dp(7).toFloat(), dp(7).toFloat()), 0f)
             }
             val tint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0x28F2AE3C }
             override fun onMeasure(w: Int, h: Int) { setMeasuredDimension(ringSize, ringSize) }
@@ -406,7 +406,7 @@ class AutoPlayerService : AccessibilityService() {
             setPadding(dp(12), dp(6), dp(8), dp(6))
             background = GradientDrawable().apply {
                 setColor(0xF21D1A14.toInt()); cornerRadius = dp(22).toFloat()
-                setStroke(dp(1), 0x80F2AE3C)
+                setStroke(dp(1), 0x80F2AE3C.toInt())
             }
         }
         val label = TextView(this).apply {

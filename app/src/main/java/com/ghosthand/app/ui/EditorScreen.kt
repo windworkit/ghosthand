@@ -392,10 +392,10 @@ private fun StepRow(
                 Spacer(Modifier.width(10.dp))
                 Text(describe(step), color = Ink, fontSize = 12.sp, fontFamily = Mono,
                     modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                IconButton(onClick = { onMove(-1) }, Modifier.size(28.dp)) { Icon(Icons.Filled.KeyboardArrowUp, null, tint = Muted, Modifier.size(16.dp)) }
-                IconButton(onClick = { onMove(1) }, Modifier.size(28.dp)) { Icon(Icons.Filled.KeyboardArrowDown, null, tint = Muted, Modifier.size(16.dp)) }
-                IconButton(onClick = onDuplicate, Modifier.size(28.dp)) { Icon(Icons.Filled.ContentCopy, null, tint = Muted, Modifier.size(14.dp)) }
-                IconButton(onClick = onDelete, Modifier.size(28.dp)) { Icon(Icons.Filled.Delete, null, tint = Danger, Modifier.size(15.dp)) }
+                IconButton(onClick = { onMove(-1) }, Modifier.size(28.dp)) { Icon(Icons.Filled.KeyboardArrowUp, null, modifier = Modifier.size(16.dp), tint = Muted) }
+                IconButton(onClick = { onMove(1) }, Modifier.size(28.dp)) { Icon(Icons.Filled.KeyboardArrowDown, null, modifier = Modifier.size(16.dp), tint = Muted) }
+                IconButton(onClick = onDuplicate, Modifier.size(28.dp)) { Icon(Icons.Filled.ContentCopy, null, modifier = Modifier.size(14.dp), tint = Muted) }
+                IconButton(onClick = onDelete, Modifier.size(28.dp)) { Icon(Icons.Filled.Delete, null, modifier = Modifier.size(15.dp), tint = Danger) }
             }
             AnimatedVisibility(visible = expanded) {
                 Column(Modifier.padding(top = 4.dp)) {

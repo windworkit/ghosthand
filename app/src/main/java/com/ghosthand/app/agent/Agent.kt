@@ -25,7 +25,11 @@ class Agent(
         onStatus("Booting…")
         var calibFails = 0
         while (coroutineContext.isActive) {
-            val bmp = frame() ?: run { delay(300); continue }
+            val bmp = frame()
+            if (bmp == null) {
+                delay(300)
+                continue
+            }
 
             when (val s = classifier.classify(bmp)) {
                 is ScreenState.Ad -> {
