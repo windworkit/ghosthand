@@ -32,6 +32,7 @@ class GameGeometryTest {
     @Test
     fun squareCellPitchRejectsDistortedAndNonFiniteGeometry() {
         assertTrue(GameGeometry.hasSquareCellPitch(30f, 31f))
+        assertFalse(GameGeometry.hasSquareCellPitch(30f, 32f))
         assertFalse(GameGeometry.hasSquareCellPitch(30f, 40f))
         assertFalse(GameGeometry.hasSquareCellPitch(Float.NaN, 30f))
         assertFalse(GameGeometry.hasSquareCellPitch(30f, Float.POSITIVE_INFINITY))
