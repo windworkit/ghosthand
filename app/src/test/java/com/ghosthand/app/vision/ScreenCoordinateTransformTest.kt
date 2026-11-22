@@ -102,10 +102,9 @@ class ScreenCoordinateTransformTest {
         val transform = ScreenCoordinateTransform.fullDisplay(324, 720, display)
 
         assertEquals(ScreenPoint(0f, 0f), transform.frameToScreen(FramePoint(0f, 0f)))
-        assertEquals(
-            ScreenPoint(720f, 1600f),
-            transform.frameToScreen(FramePoint(162f, 360f))
-        )
+        val center = transform.frameToScreen(FramePoint(162f, 360f))!!
+        assertEquals(720f, center.x, 0.01f)
+        assertEquals(1600f, center.y, 0.01f)
         val nearEdge = transform.frameToScreen(FramePoint(323f, 719f))!!
         assertEquals(1435.5555f, nearEdge.x, 0.01f)
         assertEquals(3195.5557f, nearEdge.y, 0.01f)
