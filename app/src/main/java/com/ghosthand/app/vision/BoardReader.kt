@@ -97,13 +97,13 @@ class BoardReader {
     private fun readTray(bmp: Bitmap, geo: GameGeometry.Geo): List<Piece>? {
         val bands = readTrayByBands(bmp, geo)
         if (bands != null) {
-            lastTrayDiagnostic = "bands: 3/3 pieces"
+            lastTrayDiagnostic = "bands: " + bands.joinToString { "${it.w}x${it.h}/${it.cells.size}" }
             return bands
         }
 
         val components = readTrayByComponents(bmp, geo)
         if (components != null) {
-            lastTrayDiagnostic = "components: 3/3 pieces"
+            lastTrayDiagnostic = "components: " + components.joinToString { "${it.w}x${it.h}/${it.cells.size}" }
             return components
         }
 
@@ -119,6 +119,40 @@ class BoardReader {
      * bands preserve the repeated tile spacing, so long runs are split back
      * into individual cells before reconstructing each piece's shape.
      */
+    /**
+     * Estimate the tray's plain background from its perimeter. Woodoku's
+     * backdrop is saturated blue, so a saturation-only mask mistakes the
+     * entire background for colored puzzle tiles. Sampling the clear border
+     * lets us demand a strong luminance contrast over the current game theme.
+     */
+    private fun estimateTrayBackground(
+        bmp: Bitmap, left: Int, top: Int, right: Int, bottom: Int
+    ): Int {
+        val l = left.coerceIn(0, bmp.width - 1)
+        val r = (right - 1).coerceIn(l + 1, bmp.width - 1)
+        val t = top.coerceIn(0, bmp.height - 1)
+        val b = (bottom - 1).coerceIn(t + 1, bmp.height - 1)
+        val samples = mutableListOf<Int>()
+        val stepX = ((r - l) / 24).coerceAtLeast(1)
+        val stepY = ((b - t) / 20).coerceAtLeast(1)
+
+        for (x in l..r step stepX) {
+            for (y in listOf(t + 2, b - 2)) {
+                val p = bmp.getPixel(x, y.coerceIn(t, b))
+                samples.add((Color.red(p) + Color.green(p) + Color.blue(p)) / 3)
+            }
+        }
+        for (y in t..b step stepY) {
+            for (x in listOf(l + 2, r - 2)) {
+                val p = bmp.getPixel(x.coerceIn(l, r), y)
+                samples.add((Color.red(p) + Color.green(p) + Color.blue(p)) / 3)
+            }
+        }
+        if (samples.isEmpty()) return 100
+        val sorted = samples.sorted()
+        return sorted[sorted.size / 2]
+    }
+
     private fun readTrayByBands(bmp: Bitmap, geo: GameGeometry.Geo): List<Piece>? {
         val boardBottom = geo.oy + geo.rows * geo.cell
         val y0 = (boardBottom + geo.cell * 0.45f).toInt().coerceAtLeast(0)
@@ -145,6 +179,11 @@ class BoardReader {
             val regionH = y1 - y0
             if (regionW < pitch * 1.5f) return null
 
+            val backgroundLuma = estimateTrayBackground(
+                bmp, slotLeft, y0, slotRight, y1
+            )
+            val tileLumaThreshold = maxOf(128, backgroundLuma + 32)
+
             val mask = Array(regionH) { BooleanArray(regionW) }
             val columnInk = IntArray(regionW)
             val rowInk = IntArray(regionH)
@@ -159,8 +198,10 @@ class BoardReader {
                 val luma = (r + g + b) / 3f
                 // Filter the dark maroon background while keeping shaded tile
                 // faces and the yellow/green/orange pieces at phone resolution.
-                val coloredTile = luma >= 78f &&
-                    (high - low) >= maxOf(26f, high * 0.13f)
+                // The game backdrop itself is saturated blue. Only keep
+                // pixels clearly brighter than that sampled background.
+                val coloredTile = luma >= tileLumaThreshold &&
+                    (high - low) >= maxOf(24f, high * 0.11f)
                 if (coloredTile) {
                     mask[y][x] = true
                     columnInk[x]++
@@ -332,6 +373,8 @@ class BoardReader {
 
         val regionW = x1 - x0
         val regionH = y1 - y0
+        val backgroundLuma = estimateTrayBackground(bmp, x0, y0, x1, y1)
+        val tileLumaThreshold = maxOf(128, backgroundLuma + 32)
         val mask = Array(regionH) { BooleanArray(regionW) }
 
         for (y in 0 until regionH) for (x in 0 until regionW) {
@@ -344,7 +387,8 @@ class BoardReader {
             val luma = (r + g + b) / 3
             // The maroon game background is saturated too, but much darker
             // than the orange, yellow and green tray tiles.
-            mask[y][x] = luma >= 88 && high - low >= high * 0.20f
+            mask[y][x] = luma >= tileLumaThreshold &&
+                high - low >= maxOf(24, high * 0.11f)
         }
 
         val minArea = maxOf(12, (geo.cell * geo.cell * 0.006f).toInt())
