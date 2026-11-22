@@ -64,6 +64,12 @@ data class ScreenCoordinateTransform(
     ): Boolean {
         if (!isStructurallyMappable()) return false
         if (actualFrameWidth != frameWidth || actualFrameHeight != frameHeight) return false
+        val scaleX = frameWidth.toFloat() / sourceWidth
+        val scaleY = frameHeight.toFloat() / sourceHeight
+        val scaleMismatch = kotlin.math.abs(scaleX - scaleY) / maxOf(scaleX, scaleY)
+        // Bitmap dimensions are rounded to whole pixels after uniform scaling.
+        // Permit that rounding, but not an image stretched to the display ratio.
+        if (scaleMismatch > 0.005f) return false
         if (!fullDisplayCapture) return false
         if (sourceWidth != displayWidth || sourceHeight != displayHeight) return false
         if (captureLeftPx != 0f || captureTopPx != 0f ||
