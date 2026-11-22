@@ -10,7 +10,13 @@ class BoardReader {
         val name: String,
         val cells: List<Pair<Int, Int>>,
         val w: Int,
-        val h: Int
+        val h: Int,
+        // Exact center of a visible tray tile used as the drag pickup point.
+        val grabX: Float = Float.NaN,
+        val grabY: Float = Float.NaN,
+        // That pickup tile's coordinate inside the piece's normalized shape.
+        val anchorCellX: Int = 0,
+        val anchorCellY: Int = 0
     )
 
     data class Reading(
@@ -205,11 +211,13 @@ class BoardReader {
             )
             if (xCenters.isEmpty() || yCenters.isEmpty()) return null
 
-            val rawCells = slotBlobs.map { blob ->
+            data class DetectedCell(val x: Int, val y: Int, val blob: Blob)
+            val detected = slotBlobs.map { blob ->
                 val cx = xCenters.indices.minByOrNull { abs(xCenters[it] - blob.centerX) } ?: 0
                 val cy = yCenters.indices.minByOrNull { abs(yCenters[it] - blob.centerY) } ?: 0
-                cx to cy
-            }.toSet()
+                DetectedCell(cx, cy, blob)
+            }
+            val rawCells = detected.map { it.x to it.y }.toSet()
 
             val minX = rawCells.minOf { it.first }
             val maxX = rawCells.maxOf { it.first }
@@ -226,11 +234,28 @@ class BoardReader {
                 candidate.cells.size == normalized.size &&
                     candidate.cells.all { it in normalized }
             }
+
+            // Grab a real tile, never the geometric center of a piece's
+            // bounding box (which can be an empty square for L-shaped pieces).
+            val anchor = detected.minWithOrNull(
+                compareBy<DetectedCell> { it.y }.thenBy { it.x }
+            ) ?: return null
+            val anchorCellX = anchor.x - minX
+            val anchorCellY = anchor.y - minY
+            val grabX = xCenters[anchor.x]
+            val grabY = yCenters[anchor.y]
+
             pieces.add(
                 if (known != null) {
-                    Piece(known.name, known.cells, known.w, known.h)
+                    Piece(
+                        known.name, known.cells, known.w, known.h,
+                        grabX, grabY, anchorCellX, anchorCellY
+                    )
                 } else {
-                    Piece("slot$slot", normalized.toList(), width, height)
+                    Piece(
+                        "slot$slot", normalized.toList(), width, height,
+                        grabX, grabY, anchorCellX, anchorCellY
+                    )
                 }
             )
         }
