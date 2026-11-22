@@ -48,6 +48,41 @@ object GameGeometry {
         return true
     }
 
+    /**
+     * A square-cell board must have matching horizontal and vertical pitches.
+     * Exposed as a pure predicate so the tolerance is regression-testable.
+     */
+    fun hasSquareCellPitch(
+        horizontalPitch: Float,
+        verticalPitch: Float,
+        relativeTolerance: Float = 0.10f
+    ): Boolean {
+        if (!horizontalPitch.isFinite() || !verticalPitch.isFinite() ||
+            !relativeTolerance.isFinite() ||
+            horizontalPitch <= 0f || verticalPitch <= 0f ||
+            relativeTolerance < 0f
+        ) return false
+        val larger = maxOf(horizontalPitch, verticalPitch)
+        return abs(horizontalPitch - verticalPitch) / larger <= relativeTolerance
+    }
+
+    /** Require each measured grid interval to agree with the mean pitch. */
+    fun hasUniformSpacing(
+        lines: List<Int>,
+        relativeTolerance: Float = 0.12f,
+        absoluteTolerancePx: Float = 2f
+    ): Boolean {
+        if (lines.size < 2 || !relativeTolerance.isFinite() ||
+            !absoluteTolerancePx.isFinite() || relativeTolerance < 0f ||
+            absoluteTolerancePx < 0f
+        ) return false
+        val spacing = lines.zipWithNext { a, b -> (b - a).toFloat() }
+        if (spacing.any { !it.isFinite() || it <= 0f }) return false
+        val mean = spacing.average().toFloat()
+        val allowed = maxOf(absoluteTolerancePx, mean * relativeTolerance)
+        return spacing.all { abs(it - mean) <= allowed }
+    }
+
     /** Center of a playable cell in captured-frame pixel coordinates. */
     fun cellCenter(geo: Geo, col: Int, row: Int): Pair<Float, Float>? {
         if (col !in 0 until geo.cols || row !in 0 until geo.rows || geo.cell <= 0) return null
@@ -83,18 +118,26 @@ object GameGeometry {
             s
         }
 
-        val xLines = evenlySpacedPeaks(colStr, minLines = 7, minSpacing = (lum[0].size / 13).coerceAtLeast(3))
+        val xLines = evenlySpacedPeaks(colStr, minLines = 9, minSpacing = (lum[0].size / 13).coerceAtLeast(3))
             ?.map { it * 2 + x0 } ?: return null
-        val yLines = evenlySpacedPeaks(rowStr, minLines = 7, minSpacing = (lum.size / 13).coerceAtLeast(3))
+        val yLines = evenlySpacedPeaks(rowStr, minLines = 9, minSpacing = (lum.size / 13).coerceAtLeast(3))
             ?.map { it * 2 + y0 } ?: return null
 
-        val cw = (xLines.last() - xLines.first()) / (xLines.size - 1)
-        val ch = (yLines.last() - yLines.first()) / (yLines.size - 1)
-        if (cw < 6 || ch < 6 || xLines.size > 40) return null
-        if (abs(cw - ch) > maxOf(cw, ch) * 0.35f) return null
+        // An 8x8 board needs exactly nine grid boundaries per axis. More or
+        // fewer peaks often means decorative frame or cell seams were mixed.
+        if (xLines.size != 9 || yLines.size != 9) return null
+        if (!hasUniformSpacing(xLines) || !hasUniformSpacing(yLines)) return null
+        val cw = xLines.zipWithNext { a, b -> b - a }.average().roundToInt()
+        val ch = yLines.zipWithNext { a, b -> b - a }.average().roundToInt()
+        if (cw < 6 || ch < 6 || !hasSquareCellPitch(cw.toFloat(), ch.toFloat())) return null
 
-        return Geo(xLines.first() - 1, yLines.first() - 1, (cw + ch) / 2,
-            xLines.size - 1, yLines.size - 1)
+        return Geo(
+            xLines.first() - 1,
+            yLines.first() - 1,
+            ((cw + ch) / 2f).roundToInt(),
+            cols = 8,
+            rows = 8
+        )
     }
 
     /**
@@ -253,7 +296,7 @@ object GameGeometry {
         val boardWidth = (right - left).toFloat()
         val boardHeight = (bestBottom - bestTop).toFloat()
         val aspect = boardWidth / boardHeight
-        if (aspect !in 0.78f..1.22f) return null
+        if (aspect !in 0.90f..1.10f) return null
 
         // The bright frame surrounds the playable cells; it is not itself
         // the cell lattice. Woodoku leaves a visible dark gutter between the
@@ -271,10 +314,13 @@ object GameGeometry {
         val playableHeight = boardHeight - 2f * insetY
         if (playableWidth <= 0f || playableHeight <= 0f) return null
 
-        // Derive the pitch from the playable rectangle, not the decorative
-        // frame. Averaging both axes keeps the board square after capture
-        // scaling and small JPEG/edge-detection variations.
-        val cell = ((playableWidth + playableHeight) / 16f).roundToInt()
+        val horizontalPitch = playableWidth / 8f
+        val verticalPitch = playableHeight / 8f
+        if (!hasSquareCellPitch(horizontalPitch, verticalPitch)) return null
+
+        // Derive a common pitch only after both measured axes independently
+        // agree that the playable lattice is square.
+        val cell = ((horizontalPitch + verticalPitch) / 2f).roundToInt()
         if (cell < 8) return null
 
         // Do not clamp a detector result to the bitmap. That would disguise
