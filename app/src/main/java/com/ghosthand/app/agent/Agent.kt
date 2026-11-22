@@ -261,7 +261,7 @@ class Agent(
         after: BoardReader.Reading,
         selectedIndex: Int
     ): Boolean {
-        val selected = before.pieces.getOrNull(selectedIndex) ?: return false
+        if (before.pieces.getOrNull(selectedIndex) == null) return false
         fun signature(piece: BoardReader.Piece): String =
             "${piece.w}x${piece.h}:" +
                 piece.cells.sortedWith(compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first })
@@ -277,8 +277,7 @@ class Agent(
         // The last piece may cause the game to populate a fresh three-piece
         // tray. Require a changed tray before allowing another move.
         return after.pieces.size == 3 &&
-            after.pieces.map(::signature).sorted() != before.pieces.map(::signature).sorted() &&
-            signature(selected) in before.pieces.map(::signature)
+            after.pieces.map(::signature).sorted() != before.pieces.map(::signature).sorted()
     }
 
     private fun pauseUnsafe(message: String) {
