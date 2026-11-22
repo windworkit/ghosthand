@@ -174,19 +174,8 @@ class BoardReader {
      * This detects dark red tiles as well as blue/pink/orange tiles and avoids
      * depending on absolute brightness, which changes across Woodoku themes.
      */
-    private fun isTrayTilePixel(pixel: Int, background: Int): Boolean {
-        val r = Color.red(pixel)
-        val g = Color.green(pixel)
-        val b = Color.blue(pixel)
-        val br = Color.red(background)
-        val bg = Color.green(background)
-        val bb = Color.blue(background)
-        val distance = kotlin.math.abs(r - br) +
-            kotlin.math.abs(g - bg) +
-            kotlin.math.abs(b - bb)
-        val chroma = maxOf(r, g, b) - minOf(r, g, b)
-        return distance >= 42 && chroma >= 22
-    }
+    private fun isTrayTilePixel(pixel: Int, background: Int): Boolean =
+        TrayMaskAnalyzer.isTilePixel(pixel, background)
 
     private fun readTrayByBands(bmp: Bitmap, geo: GameGeometry.Geo): List<Piece>? {
         val boardBottom = geo.oy + geo.rows * geo.cell
@@ -204,7 +193,6 @@ class BoardReader {
         if (pitch < 4f || boardWidth <= 0f) return null
 
         val pieces = mutableListOf<Piece>()
-
         for (slot in 0..2) {
             val slotLeft = (boardLeft + slot * boardWidth / 3f)
                 .toInt().coerceIn(0, bmp.width - 1)
@@ -217,188 +205,46 @@ class BoardReader {
             val backgroundColor = estimateTrayBackground(
                 bmp, slotLeft, y0, slotRight, y1
             )
-
             val mask = Array(regionH) { BooleanArray(regionW) }
-            val columnInk = IntArray(regionW)
-            val rowInk = IntArray(regionH)
-
             for (y in 0 until regionH) for (x in 0 until regionW) {
-                val pixel = bmp.getPixel(slotLeft + x, y0 + y)
-                // RGB distance is essential here: the red tray tiles are
-                // darker than the blue background and fail a luma threshold.
-                val coloredTile = isTrayTilePixel(pixel, backgroundColor)
-                if (coloredTile) {
-                    mask[y][x] = true
-                    columnInk[x]++
-                    rowInk[y]++
-                }
+                mask[y][x] = isTrayTilePixel(
+                    bmp.getPixel(slotLeft + x, y0 + y),
+                    backgroundColor
+                )
             }
 
-            val xBands = projectionBands(columnInk, pitch)
-            val yBands = projectionBands(rowInk, pitch)
-
-            // Woodoku Blast removes tray pieces as they are played. Empty slots
-            // are normal and must not invalidate the entire tray scan. Earlier
-            // logic required all three slots to contain tiles, so after the
-            // user's first move it incorrectly reported "no tray pieces".
-            if (xBands.isEmpty() && yBands.isEmpty()) continue
-            if (xBands.isEmpty() || yBands.isEmpty() ||
-                xBands.size > 5 || yBands.size > 5
-            ) continue
-
-            val detectedCells = mutableSetOf<Pair<Int, Int>>()
-            for (cy in yBands.indices) for (cx in xBands.indices) {
-                val density = patchDensity(mask, xBands[cx], yBands[cy], pitch * 0.28f)
-                if (density >= 0.26f) detectedCells.add(cx to cy)
-            }
-
-            val connected = largestConnectedComponent(detectedCells)
-            // Ignore an empty/noisy slot and continue scanning the other two.
-            if (connected.isEmpty()) continue
-
-            val minX = connected.minOf { it.first }
-            val maxX = connected.maxOf { it.first }
-            val minY = connected.minOf { it.second }
-            val maxY = connected.maxOf { it.second }
-            val width = maxX - minX + 1
-            val height = maxY - minY + 1
-            if (width !in 1..5 || height !in 1..5 || connected.size > 25) {
-                continue
-            }
-
-            val normalized = connected
-                .map { (x, y) -> (x - minX) to (y - minY) }
-                .toSet()
+            // Empty slots are represented by null analyses and do not poison
+            // the remaining slots. Analysis is pure and covered by JVM tests.
+            val shape = TrayMaskAnalyzer.analyze(mask, pitch) ?: continue
+            val normalized = shape.cells.toSet()
             val known = library.firstOrNull { candidate ->
                 candidate.cells.size == normalized.size &&
                     candidate.cells.all { it in normalized }
             }
-
-            // Use an actual detected tile as the pickup point. The anchor is
-            // also retained in piece-local coordinates for accurate placement.
-            val anchor = connected.minWithOrNull(
-                compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first }
-            ) ?: return null
-            val grabX = slotLeft + xBands[anchor.first]
-            val grabY = y0 + yBands[anchor.second]
-            val anchorX = anchor.first - minX
-            val anchorY = anchor.second - minY
             val trayBounds = FrameRect(
-                left = slotLeft + xBands[minX] - pitch * 0.5f,
-                top = y0 + yBands[minY] - pitch * 0.5f,
-                right = slotLeft + xBands[maxX] + pitch * 0.5f,
-                bottom = y0 + yBands[maxY] + pitch * 0.5f
+                left = slotLeft + shape.bounds.left,
+                top = y0 + shape.bounds.top,
+                right = slotLeft + shape.bounds.right,
+                bottom = y0 + shape.bounds.bottom
             )
-
             pieces.add(
                 if (known != null) {
                     Piece(
                         known.name, known.cells, known.w, known.h,
-                        grabX, grabY, anchorX, anchorY, trayBounds
+                        slotLeft + shape.grabX, y0 + shape.grabY,
+                        shape.anchorCellX, shape.anchorCellY, trayBounds
                     )
                 } else {
                     Piece(
-                        "slot$slot", normalized.toList(), width, height,
-                        grabX, grabY, anchorX, anchorY, trayBounds
+                        "slot$slot", shape.cells, shape.width, shape.height,
+                        slotLeft + shape.grabX, y0 + shape.grabY,
+                        shape.anchorCellX, shape.anchorCellY, trayBounds
                     )
                 }
             )
         }
 
-        // One or more tray slots may be empty after a piece was used.
-        // Accept any detected pieces, but reject a fully empty/noisy scan.
         return pieces.takeIf { it.isNotEmpty() && it.size <= 3 }
-    }
-
-    private fun projectionBands(profile: IntArray, pitch: Float): List<Float> {
-        if (profile.isEmpty()) return emptyList()
-        val maximum = profile.maxOrNull()?.toFloat() ?: 0f
-        if (maximum < 3f) return emptyList()
-        val threshold = maxOf(2f, maximum * 0.20f)
-        val centers = mutableListOf<Float>()
-        var index = 0
-
-        while (index < profile.size) {
-            if (profile[index] < threshold) {
-                index++
-                continue
-            }
-
-            val start = index
-            while (index < profile.size && profile[index] >= threshold) index++
-            val end = index
-            val runLength = end - start
-            if (runLength < pitch * 0.40f) continue
-
-            val count = (runLength / pitch).roundToInt().coerceIn(1, 5)
-            if (count > 1 && runLength >= pitch * 1.45f) {
-                for (part in 0 until count) {
-                    centers.add(start + runLength * (part + 0.5f) / count)
-                }
-            } else {
-                centers.add((start + end - 1) / 2f)
-            }
-        }
-
-        return centers
-    }
-
-    private fun patchDensity(
-        mask: Array<BooleanArray>,
-        centerX: Float,
-        centerY: Float,
-        radius: Float
-    ): Float {
-        val height = mask.size
-        val width = mask.firstOrNull()?.size ?: return 0f
-        val left = (centerX - radius).toInt().coerceAtLeast(0)
-        val right = (centerX + radius).toInt().coerceAtMost(width - 1)
-        val top = (centerY - radius).toInt().coerceAtLeast(0)
-        val bottom = (centerY + radius).toInt().coerceAtMost(height - 1)
-        if (right < left || bottom < top) return 0f
-
-        var ink = 0
-        var total = 0
-        for (y in top..bottom) for (x in left..right) {
-            if (mask[y][x]) ink++
-            total++
-        }
-        return ink.toFloat() / total.coerceAtLeast(1)
-    }
-
-    private fun largestConnectedComponent(
-        cells: Set<Pair<Int, Int>>
-    ): Set<Pair<Int, Int>> {
-        if (cells.isEmpty()) return emptySet()
-        val remaining = cells.toMutableSet()
-        var largest = emptySet<Pair<Int, Int>>()
-
-        while (remaining.isNotEmpty()) {
-            val stack = ArrayDeque<Pair<Int, Int>>()
-            val component = mutableSetOf<Pair<Int, Int>>()
-            stack.addLast(remaining.first())
-            remaining.remove(stack.last())
-
-            while (stack.isNotEmpty()) {
-                val cell = stack.removeLast()
-                component.add(cell)
-                // Woodoku pieces can touch diagonally (staircases and
-                // offset pairs). Treat all 8 surrounding cells as connected.
-                val neighbours = buildList {
-                    for (dy in -1..1) for (dx in -1..1) {
-                        if (dx != 0 || dy != 0) {
-                            add((cell.first + dx) to (cell.second + dy))
-                        }
-                    }
-                }
-                for (neighbour in neighbours) {
-                    if (remaining.remove(neighbour)) stack.addLast(neighbour)
-                }
-            }
-
-            if (component.size > largest.size) largest = component
-        }
-        return largest
     }
 
     /** Original connected-component reader retained as a fallback. */
