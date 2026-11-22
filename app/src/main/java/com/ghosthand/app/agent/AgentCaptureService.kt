@@ -40,16 +40,29 @@ class AgentCaptureService : Service() {
         else startForeground(1, notif)
 
         if (code != 0 && data != null) {
-            caster = ScreenCaster(this).also {
+            AgentBus.frame.value = null
+            try {
+                val newCaster = ScreenCaster(this)
+                newCaster.start(code, data) { bmp -> AgentBus.push(bmp) }
+                caster = newCaster
                 AgentBus.casterActive = true
-                it.start(code, data) { bmp -> AgentBus.push(bmp) }
+            } catch (e: Exception) {
+                android.util.Log.e("GhostHandCapture", "Screen capture startup failed", e)
+                AgentBus.casterActive = false
+                AgentBus.frame.value = null
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
             }
-        } else stopSelf()
+        } else {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         AgentBus.casterActive = false
+        AgentBus.frame.value = null
         caster?.stop(); caster = null
         super.onDestroy()
     }
