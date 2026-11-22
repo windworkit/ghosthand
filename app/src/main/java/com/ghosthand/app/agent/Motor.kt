@@ -4,7 +4,8 @@ import com.ghosthand.app.vision.FramePoint
 import com.ghosthand.app.vision.ScreenCoordinateTransform
 
 interface Motor {
-    suspend fun tap(x: Float, y: Float)
+    /** Frame-pixel tap; implementation maps and validates through the frame transform. */
+    suspend fun tap(point: FramePoint, transform: ScreenCoordinateTransform): Boolean
 
     /** Frame-pixel drag; the implementation must map and validate both endpoints. */
     suspend fun drag(
