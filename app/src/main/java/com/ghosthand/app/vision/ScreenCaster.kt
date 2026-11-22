@@ -62,7 +62,7 @@ class ScreenCaster(private val ctx: Context) {
             val callback = object : MediaProjection.Callback() {
                 override fun onStop() {
                     Log.i(TAG, "Screen capture was stopped by Android or the user")
-                    stop()
+                    stopIfCurrent(proj)
                 }
             }
             projectionCallback = callback
@@ -135,8 +135,19 @@ class ScreenCaster(private val ctx: Context) {
         }
     }
 
+    private fun stopIfCurrent(expected: MediaProjection) {
+        synchronized(this) {
+            if (projection !== expected) return
+            stopLocked()
+        }
+    }
+
     @Synchronized
     fun stop() {
+        stopLocked()
+    }
+
+    private fun stopLocked() {
         val oldReader = reader
         val oldDisplay = display
         val oldProjection = projection
