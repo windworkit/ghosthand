@@ -2,17 +2,31 @@ package com.ghosthand.app.vision
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import kotlin.math.abs
 
 class BoardReader {
 
-    data class Piece(val name: String, val cells: List<Pair<Int, Int>>,
-                     val w: Int, val h: Int)
+    data class Piece(
+        val name: String,
+        val cells: List<Pair<Int, Int>>,
+        val w: Int,
+        val h: Int
+    )
 
     data class Reading(
         val grid: Array<BooleanArray>,
         val pieces: List<Piece>,
         val geo: GameGeometry.Geo,
-        val bmpW: Int, val bmpH: Int
+        val bmpW: Int,
+        val bmpH: Int
+    )
+
+    private data class Blob(
+        val centerX: Float,
+        val centerY: Float,
+        val width: Int,
+        val height: Int,
+        val area: Int
     )
 
     private val library: List<Piece> = listOf(
@@ -28,99 +42,222 @@ class BoardReader {
     private fun parseShape(name: String, s: String): Piece {
         val rows = s.split("/")
         val cells = mutableListOf<Pair<Int, Int>>()
-        rows.forEachIndexed { y, r -> r.forEachIndexed { x, c -> if (c == 'X') cells.add(x to y) } }
+        rows.forEachIndexed { y, r ->
+            r.forEachIndexed { x, c -> if (c == 'X') cells.add(x to y) }
+        }
         return Piece(name, cells, rows[0].length, rows.size)
     }
 
     fun read(bmp: Bitmap, geo: GameGeometry.Geo): Reading? {
-        val grid = Array(geo.cols) { BooleanArray(geo.rows) }
+        val cellLevels = Array(geo.cols) { FloatArray(geo.rows) }
+
         for (x in 0 until geo.cols) for (y in 0 until geo.rows) {
-            val px = bmp.getPixel(
-                (geo.ox + x * geo.cell + geo.cell / 2).coerceIn(0, bmp.width - 1),
-                (geo.oy + y * geo.cell + geo.cell / 2).coerceIn(0, bmp.height - 1)
-            )
-            val hsv = FloatArray(3); Color.colorToHSV(px, hsv)
-            grid[x][y] = hsv[1] > 0.28f && hsv[2] > 0.2f
+            // Sample a small 3x3 patch in the tile face, not its border. Empty
+            // Woodoku cells are dark navy; colored blocks and flower tiles are
+            // substantially brighter. Saturation alone cannot distinguish them.
+            val samples = IntArray(9)
+            var index = 0
+            for (fy in 0..2) for (fx in 0..2) {
+                val px = (geo.ox + (x + 0.34f + fx * 0.16f) * geo.cell)
+                    .toInt().coerceIn(0, bmp.width - 1)
+                val py = (geo.oy + (y + 0.34f + fy * 0.16f) * geo.cell)
+                    .toInt().coerceIn(0, bmp.height - 1)
+                samples[index++] = luminance(bmp.getPixel(px, py))
+            }
+            samples.sort()
+            cellLevels[x][y] = samples[samples.size / 2].toFloat()
+        }
+
+        val darkestCell = cellLevels.minOf { col -> col.minOrNull() ?: 255f }
+        val occupiedThreshold = maxOf(76f, darkestCell + 28f)
+        val grid = Array(geo.cols) { x ->
+            BooleanArray(geo.rows) { y -> cellLevels[x][y] > occupiedThreshold }
         }
 
         val tray = readTray(bmp, geo) ?: return null
         return Reading(grid, tray, geo, bmp.width, bmp.height)
     }
 
+    /**
+     * Tray tiles are visually separated by narrow dark seams, so connected
+     * component detection returns one blob per tile rather than one blob per
+     * piece. Segment bright tile faces, then regroup their centers into the
+     * three tray slots and reconstruct each piece's local cell coordinates.
+     */
     private fun readTray(bmp: Bitmap, geo: GameGeometry.Geo): List<Piece>? {
-        val y0 = geo.oy + geo.rows * geo.cell + (geo.cell / 2)
-        val y1 = (y0 + geo.cell * 2.6f).toInt().coerceAtMost(bmp.height - 1)
-        if (y1 - y0 < geo.cell) return null
+        val boardBottom = geo.oy + geo.rows * geo.cell
+        val y0 = (boardBottom + geo.cell * 0.25f).toInt().coerceAtLeast(0)
+        val y1 = (y0 + geo.cell * 2.8f).toInt().coerceAtMost(bmp.height)
         val x0 = (geo.ox - geo.cell * 0.4f).toInt().coerceAtLeast(0)
-        val x1 = (geo.ox + geo.cols * geo.cell + geo.cell * 0.4f).toInt().coerceAtMost(bmp.width - 1)
+        val x1 = (geo.ox + geo.cols * geo.cell + geo.cell * 0.4f)
+            .toInt().coerceAtMost(bmp.width)
+        if (y1 - y0 < geo.cell / 2 || x1 - x0 < 30) return null
 
-        val mask = Array(y1 - y0) { BooleanArray(x1 - x0) }
-        for (y in 0 until y1 - y0) for (x in 0 until x1 - x0) {
+        val regionW = x1 - x0
+        val regionH = y1 - y0
+        val mask = Array(regionH) { BooleanArray(regionW) }
+
+        for (y in 0 until regionH) for (x in 0 until regionW) {
             val px = bmp.getPixel(x0 + x, y0 + y)
-            val hsv = FloatArray(3); Color.colorToHSV(px, hsv)
-            mask[y][x] = hsv[1] > 0.28f && hsv[2] > 0.2f
+            val r = Color.red(px)
+            val g = Color.green(px)
+            val b = Color.blue(px)
+            val high = maxOf(r, g, b)
+            val low = minOf(r, g, b)
+            val luma = (r + g + b) / 3
+            // The maroon game background is saturated too, but much darker
+            // than the orange, yellow and green tray tiles.
+            mask[y][x] = luma >= 88 && high - low >= high * 0.20f
         }
-        val seen = Array(mask.size) { BooleanArray(mask[0].size) }
-        val blobs = mutableListOf<List<Pair<Int, Int>>>()
-        for (y in mask.indices) for (x in mask[0].indices) {
-            if (!mask[y][x] || seen[y][x]) continue
-            val stack = ArrayDeque<Pair<Int, Int>>()
-            stack.addLast(x to y); seen[y][x] = true
-            val blob = mutableListOf<Pair<Int, Int>>()
+
+        val minArea = maxOf(12, (geo.cell * geo.cell * 0.006f).toInt())
+        val minDimension = (geo.cell * 0.08f).toInt().coerceAtLeast(3)
+        val seen = Array(regionH) { BooleanArray(regionW) }
+        val blobs = mutableListOf<Blob>()
+
+        for (startY in 0 until regionH) for (startX in 0 until regionW) {
+            if (!mask[startY][startX] || seen[startY][startX]) continue
+
+            val stack = ArrayDeque<Int>()
+            stack.addLast(startY * regionW + startX)
+            seen[startY][startX] = true
+
+            var minX = startX
+            var maxX = startX
+            var minY = startY
+            var maxY = startY
+            var sumX = 0L
+            var sumY = 0L
+            var area = 0
+
             while (stack.isNotEmpty()) {
-                val (cx, cy) = stack.removeLast(); blob.add(cx to cy)
-                for (d in listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)) {
-                    val nx = cx + d.first; val ny = cy + d.second
-                    if (nx in mask[0].indices && ny in mask.indices && mask[ny][nx] && !seen[ny][nx]) {
-                        seen[ny][nx] = true; stack.addLast(nx to ny)
-                    }
+                val packed = stack.removeLast()
+                val cx = packed % regionW
+                val cy = packed / regionW
+                area++
+                sumX += cx
+                sumY += cy
+                minX = minOf(minX, cx)
+                maxX = maxOf(maxX, cx)
+                minY = minOf(minY, cy)
+                maxY = maxOf(maxY, cy)
+
+                val left = cx - 1
+                val right = cx + 1
+                val up = cy - 1
+                val down = cy + 1
+                if (left >= 0 && mask[cy][left] && !seen[cy][left]) {
+                    seen[cy][left] = true
+                    stack.addLast(cy * regionW + left)
+                }
+                if (right < regionW && mask[cy][right] && !seen[cy][right]) {
+                    seen[cy][right] = true
+                    stack.addLast(cy * regionW + right)
+                }
+                if (up >= 0 && mask[up][cx] && !seen[up][cx]) {
+                    seen[up][cx] = true
+                    stack.addLast(up * regionW + cx)
+                }
+                if (down < regionH && mask[down][cx] && !seen[down][cx]) {
+                    seen[down][cx] = true
+                    stack.addLast(down * regionW + cx)
                 }
             }
-            if (blob.size > geo.cell / 2) blobs.add(blob)
-        }
-        blobs.sortByDescending { it.size }
 
-        val pieces = blobs.take(3).mapNotNull { blob -> blobToPiece(blob) }
-        return if (pieces.isNotEmpty()) pieces.take(3) else null
-    }
-
-    private fun blobToPiece(blob: List<Pair<Int, Int>>): Piece? {
-        if (blob.isEmpty()) return null
-        val xs = blob.map { it.first }; val ys = blob.map { it.second }
-        val minX = xs.min(); val maxX = xs.max(); val minY = ys.min(); val maxY = ys.max()
-        val bw = maxX - minX + 1; val bh = maxY - minY + 1
-
-        val colInk = IntArray(bw); val rowInk = IntArray(bh)
-        blob.forEach { (x, y) -> colInk[x - minX]++; rowInk[y - minY]++ }
-
-        fun groups(profile: IntArray): List<IntRange> {
-            val thr = profile.max() * 0.25f
-            val out = mutableListOf<IntRange>()
-            var s = -1
-            profile.forEachIndexed { i, v ->
-                val ink = v > thr
-                if (ink && s < 0) s = i
-                if (!ink && s >= 0) { out.add(s until i); s = -1 }
+            val bw = maxX - minX + 1
+            val bh = maxY - minY + 1
+            if (area >= minArea && bw >= minDimension && bh >= minDimension) {
+                blobs.add(
+                    Blob(
+                        x0 + sumX.toFloat() / area,
+                        y0 + sumY.toFloat() / area,
+                        bw,
+                        bh,
+                        area
+                    )
+                )
             }
-            if (s >= 0) out.add(s until profile.size)
-            return out.filter { it.first <= it.last && !it.isEmpty() }
         }
-        val gx = groups(colInk); val gy = groups(rowInk)
-        if (gx.isEmpty() || gy.isEmpty()) return null
 
-        val cells = sortedSetOf(compareBy<Pair<Int, Int>> { it.first }.thenBy { it.second })
-        blob.forEach { (x, y) ->
-            val gi = gx.indexOfFirst { x - minX in it }; val gj = gy.indexOfFirst { y - minY in it }
-            if (gi >= 0 && gj >= 0) cells.add(gi to gj)
+        if (blobs.isEmpty()) return null
+
+        val trayLeft = x0.toFloat()
+        val slotWidth = (x1 - x0) / 3f
+        if (slotWidth <= 0f) return null
+
+        val pieces = mutableListOf<Piece>()
+        for (slot in 0..2) {
+            val slotBlobs = blobs.filter { blob ->
+                val slotIndex = ((blob.centerX - trayLeft) / slotWidth).toInt()
+                slotIndex.coerceIn(0, 2) == slot
+            }
+            if (slotBlobs.isEmpty()) return null
+
+            val typicalW = median(slotBlobs.map { it.width.toFloat() })
+            val typicalH = median(slotBlobs.map { it.height.toFloat() })
+            val xCenters = clusterCenters(
+                slotBlobs.map { it.centerX },
+                (typicalW * 0.55f).coerceAtLeast(3f)
+            )
+            val yCenters = clusterCenters(
+                slotBlobs.map { it.centerY },
+                (typicalH * 0.55f).coerceAtLeast(3f)
+            )
+            if (xCenters.isEmpty() || yCenters.isEmpty()) return null
+
+            val rawCells = slotBlobs.map { blob ->
+                val cx = xCenters.indices.minByOrNull { abs(xCenters[it] - blob.centerX) } ?: 0
+                val cy = yCenters.indices.minByOrNull { abs(yCenters[it] - blob.centerY) } ?: 0
+                cx to cy
+            }.toSet()
+
+            val minX = rawCells.minOf { it.first }
+            val maxX = rawCells.maxOf { it.first }
+            val minY = rawCells.minOf { it.second }
+            val maxY = rawCells.maxOf { it.second }
+            val width = maxX - minX + 1
+            val height = maxY - minY + 1
+            if (width > 5 || height > 5 || rawCells.size > 25) return null
+
+            val normalized = rawCells
+                .map { (cx, cy) -> (cx - minX) to (cy - minY) }
+                .toSet()
+            val known = library.firstOrNull { candidate ->
+                candidate.cells.size == normalized.size &&
+                    candidate.cells.all { it in normalized }
+            }
+            pieces.add(
+                if (known != null) {
+                    Piece(known.name, known.cells, known.w, known.h)
+                } else {
+                    Piece("slot$slot", normalized.toList(), width, height)
+                }
+            )
         }
-        val grid = cells.toList()
-        val w = gx.size; val h = gy.size
 
-        val nlx = grid.minOf { it.first }; val nly = grid.minOf { it.second }
-        val norm = grid.map { (it.first - nlx) to (it.second - nly) }.toSet()
-
-        return library.firstOrNull { p ->
-            p.cells.size == norm.size && p.cells.all { it in norm }
-        }?.let { Piece(it.name, grid, w, h) } ?: Piece("custom", grid, w, h)
+        return pieces.takeIf { it.size == 3 }
     }
+
+    private fun clusterCenters(values: List<Float>, tolerance: Float): List<Float> {
+        if (values.isEmpty()) return emptyList()
+        val groups = mutableListOf<MutableList<Float>>()
+        for (value in values.sorted()) {
+            val current = groups.lastOrNull()
+            if (current == null || abs(value - current.average().toFloat()) > tolerance) {
+                groups.add(mutableListOf(value))
+            } else {
+                current.add(value)
+            }
+        }
+        return groups.map { it.average().toFloat() }
+    }
+
+    private fun median(values: List<Float>): Float {
+        if (values.isEmpty()) return 0f
+        val sorted = values.sorted()
+        return sorted[sorted.size / 2]
+    }
+
+    private fun luminance(pixel: Int): Int =
+        (Color.red(pixel) + Color.green(pixel) + Color.blue(pixel)) / 3
 }
