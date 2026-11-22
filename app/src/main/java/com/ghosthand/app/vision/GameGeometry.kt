@@ -56,7 +56,7 @@ object GameGeometry {
     fun hasSquareCellPitch(
         horizontalPitch: Float,
         verticalPitch: Float,
-        relativeTolerance: Float = 0.10f
+        relativeTolerance: Float = 0.05f
     ): Boolean {
         if (!horizontalPitch.isFinite() || !verticalPitch.isFinite() ||
             !relativeTolerance.isFinite() ||
