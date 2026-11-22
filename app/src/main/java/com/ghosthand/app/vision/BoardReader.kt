@@ -252,7 +252,8 @@ class BoardReader {
             }
 
             val connected = largestConnectedComponent(detectedCells)
-            if (connected.isEmpty()) return null
+            // Ignore an empty/noisy slot and continue scanning the other two.
+            if (connected.isEmpty()) continue
 
             val minX = connected.minOf { it.first }
             val maxX = connected.maxOf { it.first }
@@ -261,7 +262,7 @@ class BoardReader {
             val width = maxX - minX + 1
             val height = maxY - minY + 1
             if (width !in 1..5 || height !in 1..5 || connected.size > 25) {
-                return null
+                continue
             }
 
             val normalized = connected
@@ -494,7 +495,9 @@ class BoardReader {
                 val slotIndex = ((blob.centerX - trayLeft) / slotWidth).toInt()
                 slotIndex.coerceIn(0, 2) == slot
             }
-            if (slotBlobs.isEmpty()) return null
+            // A used tray slot is empty by design; don't reject the remaining
+            // playable pieces simply because an earlier slot has disappeared.
+            if (slotBlobs.isEmpty()) continue
 
             val typicalW = median(slotBlobs.map { it.width.toFloat() })
             val typicalH = median(slotBlobs.map { it.height.toFloat() })
@@ -506,7 +509,7 @@ class BoardReader {
                 slotBlobs.map { it.centerY },
                 (typicalH * 0.55f).coerceAtLeast(3f)
             )
-            if (xCenters.isEmpty() || yCenters.isEmpty()) return null
+            if (xCenters.isEmpty() || yCenters.isEmpty()) continue
 
             data class DetectedCell(val x: Int, val y: Int, val blob: Blob)
             val detected = slotBlobs.map { blob ->
@@ -522,7 +525,7 @@ class BoardReader {
             val maxY = rawCells.maxOf { it.second }
             val width = maxX - minX + 1
             val height = maxY - minY + 1
-            if (width > 5 || height > 5 || rawCells.size > 25) return null
+            if (width > 5 || height > 5 || rawCells.size > 25) continue
 
             val normalized = rawCells
                 .map { (cx, cy) -> (cx - minX) to (cy - minY) }
@@ -557,7 +560,7 @@ class BoardReader {
             )
         }
 
-        return pieces.takeIf { it.size == 3 }
+        return pieces.takeIf { it.isNotEmpty() && it.size <= 3 }
     }
 
     private fun clusterCenters(values: List<Float>, tolerance: Float): List<Float> {
