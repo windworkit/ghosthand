@@ -57,5 +57,6 @@ class GameGeometryTest {
         assertNull(GameGeometry.cellCenter(geo, -1, 0))
         assertNull(GameGeometry.cellCenter(geo, 8, 0))
         assertNull(GameGeometry.cellCenter(geo, 0, 8))
+        assertNull(GameGeometry.cellCenter(geo.copy(cell = Float.NaN), 0, 0))
     }
 }
