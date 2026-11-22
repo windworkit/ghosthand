@@ -34,6 +34,7 @@ import com.ghosthand.app.vision.FramePoint
 import com.ghosthand.app.vision.ScreenCoordinateTransform
 import com.ghosthand.app.vision.ScreenClassifier
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -47,6 +48,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
@@ -229,7 +231,8 @@ class AutoPlayerService : AccessibilityService() {
     ): Boolean {
         val dur = durationMs.coerceIn(40L, 60_000L)
         val pillWasPresent = pillFrame != null && pillLayoutParams != null
-        if (pillWasPresent) setPillTouchable(false)
+        // Complete both overlay flag changes even when the play job is cancelled.
+        if (pillWasPresent) withContext(NonCancellable) { setPillTouchable(false) }
 
         return try {
             withTimeoutOrNull(dur + 2500L) {
@@ -258,7 +261,7 @@ class AutoPlayerService : AccessibilityService() {
                 }
             } ?: false
         } finally {
-            if (pillWasPresent) setPillTouchable(true)
+            if (pillWasPresent) withContext(NonCancellable) { setPillTouchable(true) }
         }
     }
 
