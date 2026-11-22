@@ -17,6 +17,12 @@ interface Motor {
 
     suspend fun idle(ms: Long)
 
+    /**
+     * Wait until the user resumes. Returns true when the agent was paused,
+     * telling it to discard any plan computed from a pre-pause frame.
+     */
+    suspend fun awaitReady(): Boolean = false
+
     fun isFrameAligned(
         transform: ScreenCoordinateTransform,
         frameWidth: Int,
