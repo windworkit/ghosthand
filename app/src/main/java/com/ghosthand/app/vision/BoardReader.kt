@@ -301,12 +301,15 @@ class BoardReader {
             while (stack.isNotEmpty()) {
                 val cell = stack.removeLast()
                 component.add(cell)
-                val neighbours = listOf(
-                    (cell.first - 1) to cell.second,
-                    (cell.first + 1) to cell.second,
-                    cell.first to (cell.second - 1),
-                    cell.first to (cell.second + 1)
-                )
+                // Woodoku pieces can touch diagonally (staircases and
+                // offset pairs). Treat all 8 surrounding cells as connected.
+                val neighbours = buildList {
+                    for (dy in -1..1) for (dx in -1..1) {
+                        if (dx != 0 || dy != 0) {
+                            add((cell.first + dx) to (cell.second + dy))
+                        }
+                    }
+                }
                 for (neighbour in neighbours) {
                     if (remaining.remove(neighbour)) stack.addLast(neighbour)
                 }
