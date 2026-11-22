@@ -9,10 +9,13 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
+import android.hardware.display.DisplayManager
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -206,15 +209,34 @@ class AutoPlayerService : AccessibilityService() {
     private fun off(a: Float) = if (a <= 0f) 0f else (Random.nextFloat() * 2 - 1) * a
 
     private fun screen(): Pair<Int, Int> = try {
-        // Accessibility GestureDescription coordinates are in full-display
-        // pixels. Match the full MediaProjection frame, rather than using
-        // currentWindowMetrics (which can describe an inset app window on
-        // Android 11+ and shift every Smart Play drop by the system-bar area).
+        // Use the same active default-display bounds as ScreenCaster. The
+        // default display changes dimensions when a Galaxy Fold moves between
+        // cover and inner panels; service/app resource metrics can be stale.
+        val display = getSystemService(DisplayManager::class.java)
+            .getDisplay(Display.DEFAULT_DISPLAY)
+        val displayContext = if (display != null) createDisplayContext(display) else this
+        val bounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && display != null) {
+            runCatching {
+                displayContext.createWindowContext(
+                    display, WindowManager.LayoutParams.TYPE_APPLICATION, null
+                ).getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
+            }.getOrNull()
+        } else null
+
         val size = Point()
-        @Suppress("DEPRECATION")
-        wm().defaultDisplay.getRealSize(size)
-        if (size.x > 0 && size.y > 0) size.x to size.y
-        else resources.displayMetrics.widthPixels to resources.displayMetrics.heightPixels
+        if (bounds == null || bounds.width() <= 0 || bounds.height() <= 0) {
+            runCatching {
+                @Suppress("DEPRECATION")
+                display?.getRealSize(size)
+            }
+        }
+        val width = bounds?.width()?.takeIf { it > 0 }
+            ?: size.x.takeIf { it > 0 }
+            ?: displayContext.resources.displayMetrics.widthPixels
+        val height = bounds?.height()?.takeIf { it > 0 }
+            ?: size.y.takeIf { it > 0 }
+            ?: displayContext.resources.displayMetrics.heightPixels
+        width to height
     } catch (e: Exception) {
         resources.displayMetrics.widthPixels to resources.displayMetrics.heightPixels
     }
