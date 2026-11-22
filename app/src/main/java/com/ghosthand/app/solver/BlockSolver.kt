@@ -4,10 +4,25 @@ import com.ghosthand.app.vision.BoardReader
 
 class BlockSolver(private val cols: Int, private val rows: Int) {
 
+    // Exposed to Smart Play so a genuine no-fit result can be distinguished
+    // from a bad board read or an incorrectly detected tray shape.
+    var lastDiagnostic: String = "not run"
+        private set
+
     data class Move(val pieceIdx: Int, val piece: BoardReader.Piece, val x: Int, val y: Int)
 
     fun solve(grid: Array<BooleanArray>, pieces: List<BoardReader.Piece>): List<Move>? {
-        if (pieces.isEmpty()) return null
+        if (pieces.isEmpty()) {
+            lastDiagnostic = "tray returned 0 pieces"
+            return null
+        }
+        val emptyCells = grid.sumOf { col -> col.count { !it } }
+        val fitCounts = pieces.map { piece -> countPlacements(grid, piece) }
+        lastDiagnostic = "empty=$emptyCells/${cols * rows}; " +
+            pieces.mapIndexed { i, p ->
+                "${p.name} ${p.w}x${p.h}/${p.cells.size} blocks=${fitCounts[i]} fits"
+            }.joinToString("; ")
+
         var best: List<Move>? = null; var bestScore = Long.MIN_VALUE
         for (perm in permutations(pieces.indices.toList())) {
             var work = grid; var score = 0L
@@ -50,6 +65,17 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
             }
         }
         return fallback?.let { listOf(it) }
+    }
+
+    private fun countPlacements(g: Array<BooleanArray>, p: BoardReader.Piece): Int {
+        if (p.w !in 1..5 || p.h !in 1..5 || p.w > cols || p.h > rows ||
+            p.cells.isEmpty() || p.cells.any { (x, y) -> x !in 0 until p.w || y !in 0 until p.h }
+        ) return 0
+        var count = 0
+        for (x in 0..(cols - p.w)) for (y in 0..(rows - p.h)) {
+            if (fits(g, p, x, y)) count++
+        }
+        return count
     }
 
     private fun fits(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Boolean {
