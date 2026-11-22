@@ -167,11 +167,16 @@ class Agent(
         // point must come from a detected occupied tile in the current frame.
         val grabX = piece.grabX
         val grabY = piece.grabY
+        val trayBounds = piece.trayBounds
         if (!grabX.isFinite() || !grabY.isFinite() ||
             grabX < 0f || grabY < 0f ||
-            grabX >= bmp.width.toFloat() || grabY >= bmp.height.toFloat()
+            grabX >= bmp.width.toFloat() || grabY >= bmp.height.toFloat() ||
+            trayBounds == null || !trayBounds.isValid ||
+            trayBounds.right > bmp.width || trayBounds.bottom > bmp.height ||
+            grabX !in trayBounds.left..trayBounds.right ||
+            grabY !in trayBounds.top..trayBounds.bottom
         ) {
-            pauseUnsafe("Move rejected: no verified pickup tile")
+            pauseUnsafe("Move rejected: pickup tile/tray bounds are not verified")
             return true
         }
 
@@ -190,8 +195,27 @@ class Agent(
             return true
         }
 
+        val boardRight = geo.ox + geo.cols * geo.cell
+        val boardBottom = geo.oy + geo.rows * geo.cell
+        val cellCenters = buildString {
+            for (row in 0 until geo.rows) for (col in 0 until geo.cols) {
+                val center = GameGeometry.cellCenter(geo, col, row) ?: continue
+                append("${col},${row}=${center.first.toInt()},${center.second.toInt()};")
+            }
+        }
+        val planDiagnostic =
+            "solver piece=${move.pieceIdx} origin=(${move.x},${move.y}) anchor=(${anchorX},${anchorY}); " +
+                "boardFrame=(${geo.ox},${geo.oy})-(${boardRight},${boardBottom}) cell=${geo.cell}; " +
+                "trayFrame=(${trayBounds.left},${trayBounds.top})-(${trayBounds.right},${trayBounds.bottom}); " +
+                "pickupFrame=(${grabX},${grabY}) dropFrame=(${drop.first},${drop.second}); " +
+                "touchStart=(${screenStart.x},${screenStart.y}) touchEnd=(${screenEnd.x},${screenEnd.y}); " +
+                capture.transform.diagnostic() + "; centers=$cellCenters"
+        android.util.Log.i("GhostHandPlan", planDiagnostic)
         onStatus(
             "Plan p${move.pieceIdx + 1} -> c${anchorX + 1} r${anchorY + 1}; " +
+                "board ${geo.ox},${geo.oy}-${boardRight},${boardBottom}; " +
+                "tray ${trayBounds.left.toInt()},${trayBounds.top.toInt()}-" +
+                "${trayBounds.right.toInt()},${trayBounds.bottom.toInt()}; " +
                 "frame ${grabX.toInt()},${grabY.toInt()} -> ${drop.first.toInt()},${drop.second.toInt()}; " +
                 "touch ${screenStart.x.toInt()},${screenStart.y.toInt()} -> " +
                 "${screenEnd.x.toInt()},${screenEnd.y.toInt()}"
