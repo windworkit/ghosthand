@@ -25,8 +25,8 @@ class GameGeometryTest {
         val geo = GameGeometry.Geo(20, 100, 39.625f, 8, 8)
         assertTrue(GameGeometry.isValid(geo, 340, 420))
         val center = GameGeometry.cellCenter(geo, 7, 7)!!
-        assertEquals(317.375f, center.first, 0.001f)
-        assertEquals(397.375f, center.second, 0.001f)
+        assertEquals(317.1875f, center.first, 0.001f)
+        assertEquals(397.1875f, center.second, 0.001f)
     }
 
     @Test
@@ -52,7 +52,7 @@ class GameGeometryTest {
 
     @Test
     fun computesCellCentersFromOneValidatedLattice() {
-        val geo = GameGeometry.Geo(20, 100, 40, 8, 8)
+        val geo = GameGeometry.Geo(20, 100, 40f, 8, 8)
         assertEquals(120f to 240f, GameGeometry.cellCenter(geo, 2, 3))
         assertNull(GameGeometry.cellCenter(geo, -1, 0))
         assertNull(GameGeometry.cellCenter(geo, 8, 0))
