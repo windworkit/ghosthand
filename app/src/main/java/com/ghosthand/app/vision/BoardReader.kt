@@ -3,6 +3,7 @@ package com.ghosthand.app.vision
 import android.graphics.Bitmap
 import android.graphics.Color
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class BoardReader {
 
