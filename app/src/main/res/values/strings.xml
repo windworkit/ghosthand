@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">GhostHand</string>
-    <string name="accessibility_desc">GhostHand uses accessibility gestures to tap and swipe on the screen for you — so it can play through games automatically. It never reads screen content.</string>
+    <string name="accessibility_desc">GhostHand uses accessibility gestures to tap and swipe on the screen for you. When Smart Play is active, it captures and analyzes screen images to recognize supported game boards and popups.</string>
 </resources>
