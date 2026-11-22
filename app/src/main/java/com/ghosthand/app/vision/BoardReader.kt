@@ -182,7 +182,7 @@ class BoardReader {
             val backgroundLuma = estimateTrayBackground(
                 bmp, slotLeft, y0, slotRight, y1
             )
-            val tileLumaThreshold = maxOf(128, backgroundLuma + 32)
+            val tileLumaThreshold = maxOf(118, backgroundLuma + 12)
 
             val mask = Array(regionH) { BooleanArray(regionW) }
             val columnInk = IntArray(regionW)
@@ -374,7 +374,7 @@ class BoardReader {
         val regionW = x1 - x0
         val regionH = y1 - y0
         val backgroundLuma = estimateTrayBackground(bmp, x0, y0, x1, y1)
-        val tileLumaThreshold = maxOf(128, backgroundLuma + 32)
+        val tileLumaThreshold = maxOf(118, backgroundLuma + 12)
         val mask = Array(regionH) { BooleanArray(regionW) }
 
         for (y in 0 until regionH) for (x in 0 until regionW) {
