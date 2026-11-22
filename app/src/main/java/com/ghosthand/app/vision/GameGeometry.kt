@@ -86,7 +86,9 @@ object GameGeometry {
 
     /** Center of a playable cell in captured-frame pixel coordinates. */
     fun cellCenter(geo: Geo, col: Int, row: Int): Pair<Float, Float>? {
-        if (col !in 0 until geo.cols || row !in 0 until geo.rows || geo.cell <= 0f) return null
+        if (col !in 0 until geo.cols || row !in 0 until geo.rows ||
+            !geo.cell.isFinite() || geo.cell <= 0f
+        ) return null
         return (geo.ox + (col + 0.5f) * geo.cell) to
             (geo.oy + (row + 0.5f) * geo.cell)
     }
