@@ -26,7 +26,7 @@ object GameGeometry {
     /** Strictly validate the playable lattice; no edge clamping or 8% overflow. */
     fun isValid(geo: Geo, frameWidth: Int, frameHeight: Int): Boolean {
         if (frameWidth <= 0 || frameHeight <= 0 ||
-            geo.cols != 8 || geo.rows != 8 || geo.cell < 6 ||
+            geo.cols != 8 || geo.rows != 8 || geo.cell < 6f ||
             geo.ox < 0 || geo.oy < 0
         ) return false
 
@@ -86,7 +86,7 @@ object GameGeometry {
 
     /** Center of a playable cell in captured-frame pixel coordinates. */
     fun cellCenter(geo: Geo, col: Int, row: Int): Pair<Float, Float>? {
-        if (col !in 0 until geo.cols || row !in 0 until geo.rows || geo.cell <= 0) return null
+        if (col !in 0 until geo.cols || row !in 0 until geo.rows || geo.cell <= 0f) return null
         return (geo.ox + (col + 0.5f) * geo.cell) to
             (geo.oy + (row + 0.5f) * geo.cell)
     }
