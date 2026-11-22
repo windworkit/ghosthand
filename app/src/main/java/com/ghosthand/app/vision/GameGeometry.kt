@@ -9,7 +9,7 @@ object GameGeometry {
 
     data class Geo(
         val ox: Int, val oy: Int,
-        val cell: Int,
+        val cell: Float,
         val cols: Int, val rows: Int
     )
 
@@ -30,8 +30,9 @@ object GameGeometry {
             geo.ox < 0 || geo.oy < 0
         ) return false
 
-        val right = geo.ox.toLong() + geo.cols.toLong() * geo.cell
-        val bottom = geo.oy.toLong() + geo.rows.toLong() * geo.cell
+        if (!geo.cell.isFinite() || geo.cell < 6f) return false
+        val right = geo.ox + geo.cols * geo.cell
+        val bottom = geo.oy + geo.rows * geo.cell
         if (right > frameWidth || bottom > frameHeight) return false
 
         // Explicitly check every cell center and its complete cell bounds.
@@ -40,7 +41,7 @@ object GameGeometry {
             val top = geo.oy + row * geo.cell
             val cx = left + geo.cell * 0.5f
             val cy = top + geo.cell * 0.5f
-            if (left < 0 || top < 0 ||
+            if (left < 0f || top < 0f ||
                 left + geo.cell > frameWidth || top + geo.cell > frameHeight ||
                 cx !in 0f..frameWidth.toFloat() || cy !in 0f..frameHeight.toFloat()
             ) return false
@@ -127,14 +128,14 @@ object GameGeometry {
         // fewer peaks often means decorative frame or cell seams were mixed.
         if (xLines.size != 9 || yLines.size != 9) return null
         if (!hasUniformSpacing(xLines) || !hasUniformSpacing(yLines)) return null
-        val cw = xLines.zipWithNext { a, b -> b - a }.average().roundToInt()
-        val ch = yLines.zipWithNext { a, b -> b - a }.average().roundToInt()
-        if (cw < 6 || ch < 6 || !hasSquareCellPitch(cw.toFloat(), ch.toFloat())) return null
+        val cw = xLines.zipWithNext { a, b -> (b - a).toFloat() }.average().toFloat()
+        val ch = yLines.zipWithNext { a, b -> (b - a).toFloat() }.average().toFloat()
+        if (cw < 6f || ch < 6f || !hasSquareCellPitch(cw, ch)) return null
 
         return Geo(
             xLines.first() - 1,
             yLines.first() - 1,
-            ((cw + ch) / 2f).roundToInt(),
+            (cw + ch) / 2f,
             cols = 8,
             rows = 8
         )
@@ -320,8 +321,8 @@ object GameGeometry {
 
         // Derive a common pitch only after both measured axes independently
         // agree that the playable lattice is square.
-        val cell = ((horizontalPitch + verticalPitch) / 2f).roundToInt()
-        if (cell < 8) return null
+        val cell = (horizontalPitch + verticalPitch) / 2f
+        if (cell < 8f) return null
 
         // Do not clamp a detector result to the bitmap. That would disguise
         // an invalid lattice and create drop centers beyond the playable frame.
