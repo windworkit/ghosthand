@@ -252,6 +252,7 @@ class AutoPlayerService : AccessibilityService() {
             try {
                 Agent(ocr, ScreenClassifier(ocr), AdSentinel(ocr, motor), motor) {
                     statusText.value = it
+                    main.post { pillLabel?.text = it.take(20) }
                 }.loop { AgentBus.frame.value }
             } catch (e: CancellationException) {
                 statusText.value = "Stopped"
@@ -418,7 +419,7 @@ class AutoPlayerService : AccessibilityService() {
             }
         }
         val label = TextView(this).apply {
-            text = "P1·S1"; textSize = 12f
+            text = "Starting…"; textSize = 10f
             setTextColor(0xFFF2AE3C.toInt()); typeface = Typeface.MONOSPACE
         }
         pillLabel = label
