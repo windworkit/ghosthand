@@ -78,6 +78,14 @@ class ScreenCoordinateTransformTest {
     }
 
     @Test
+    fun densityChangeInvalidatesTheCapturedDisplaySnapshot() {
+        val captured = ActiveDisplaySnapshot(0, 904, 2316, 0, 420)
+        val transform = ScreenCoordinateTransform.fullDisplay(281, 720, captured)
+        assertTrue(transform.isCompatible(captured))
+        assertFalse(transform.isCompatible(captured.copy(densityDpi = 480)))
+    }
+
+    @Test
     fun rejectsNonUniformlyScaledFullDisplayFrame() {
         val display = ActiveDisplaySnapshot(0, 1000, 2000, 0, 420)
         val stretched = ScreenCoordinateTransform.fullDisplay(500, 720, display)
