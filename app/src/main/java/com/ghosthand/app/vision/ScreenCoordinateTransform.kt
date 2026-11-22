@@ -144,6 +144,7 @@ data class ScreenCoordinateTransform(
             displayWidth = display.width,
             displayHeight = display.height,
             displayRotation = display.rotation,
+            displayDensityDpi = display.densityDpi,
             captureLeftPx = left,
             captureTopPx = top,
             captureWidthPx = width,
