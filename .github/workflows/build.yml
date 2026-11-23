@@ -16,7 +16,9 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Build debug APK
-                run: gradle assembleDebug --no-daemon -PgitSha=${{ github.sha }} -Dorg.gradle.jvmargs=-Xmx3g
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: gradle assembleDebug --no-daemon -PgitSha=$GIT_SHA -Dorg.gradle.jvmargs=-Xmx3g
       - uses: actions/upload-artifact@v4
         with:
           name: GhostHand-APK
