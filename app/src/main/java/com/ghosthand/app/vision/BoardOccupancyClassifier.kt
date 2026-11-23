@@ -24,8 +24,12 @@ object BoardOccupancyClassifier {
     )
 
     private const val BACKGROUND_CLUSTER_RADIUS = 28.0
-    private const val EMPTY_MAX_DISTANCE = 34.0
-    private const val OCCUPIED_MIN_DISTANCE = 56.0
+    // Be intentionally strict about declaring a cell empty. Woodoku tile faces
+    // can be dark/blue and sit near the board's blue background in RGB space.
+    // A borderline shade must reject the whole board, never become an empty
+    // destination merely because it is closer to the background than expected.
+    private const val EMPTY_MAX_DISTANCE = 14.0
+    private const val OCCUPIED_MIN_DISTANCE = 42.0
 
     fun classify(cells: Array<Array<Rgb>>): Classification {
         if (cells.isEmpty() || cells.first().isEmpty()) {
