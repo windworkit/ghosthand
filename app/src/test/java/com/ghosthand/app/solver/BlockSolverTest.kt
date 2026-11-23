@@ -73,6 +73,21 @@ class BlockSolverTest {
         assertTrue("unrelated occupied cell must remain", result[1][6])
     }
 
+
+    @Test
+    fun equalScorePlacementsKeepFirstCandidateInsteadOfRepeatingLastScannedCell() {
+        val solver = BlockSolver(8, 8)
+        val single = piece(listOf(0 to 0), 1, 1)
+
+        val move = solver.solve(emptyBoard(), listOf(single))!!.first()
+
+        // All columns are equivalent on an empty board. Stable strict-greater
+        // selection must retain the first equal-scoring candidate (x=0),
+        // rather than repeatedly overwriting it with the last column (x=7).
+        assertEquals(0, move.x)
+        assertEquals(7, move.y)
+    }
+
     @Test
     fun supportsMultipleConsecutiveLegalMovesFromUpdatedBoard() {
         val solver = BlockSolver(8, 8)
