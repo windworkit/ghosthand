@@ -19,7 +19,12 @@ class Agent(
     private val classifier: ScreenClassifier,
     private val ad: AdSentinel,
     private val motor: Motor,
-    private val onStatus: (String) -> Unit
+    private val onStatus: (String) -> Unit,
+    // Persist the last unverified plan so restarting Smart Play cannot blindly
+    // dispatch the identical move against the identical board/tray snapshot.
+    private val wasAttempted: (String) -> Boolean = { false },
+    private val recordAttempt: (String) -> Unit = {},
+    private val clearAttempt: (String) -> Unit = {}
 ) {
     private var geoCache: GameGeometry.Geo? = null
     private val reader = BoardReader()
@@ -194,6 +199,19 @@ class Agent(
             return true
         }
 
+        // A completed Accessibility callback is not proof that a tile landed.
+        // Keep the exact board + tray + placement key until post-move vision
+        // confirms both the expected occupancy and tray consumption.
+        val attemptKey = moveAttemptKey(reading.grid, reading.pieces, move)
+        if (wasAttempted(attemptKey)) {
+            pauseUnsafe(
+                "Duplicate blocked: same unverified move on unchanged board/tray; " +
+                    "no second gesture sent"
+            )
+            android.util.Log.w("GhostHandPlan", "Blocked duplicate attempt key=$attemptKey")
+            return true
+        }
+
         val start = FramePoint(grabX, grabY)
         val end = FramePoint(drop.first, drop.second)
         val screenStart = capture.transform.frameToScreen(start)
@@ -237,9 +255,14 @@ class Agent(
             return false
         }
 
+        // Record before dispatch: cancellation/process death can leave the
+        // game in an uncertain intermediate state, so an identical plan must
+        // not be sent again until a fresh, changed board/tray is observed.
+        recordAttempt(attemptKey)
+        android.util.Log.i("GhostHandPlan", "Recorded pending attempt key=$attemptKey")
         val dispatched = motor.drag(start, end, capture.transform, ms = 1000)
         if (!dispatched) {
-            pauseUnsafe("Gesture rejected/cancelled — placement not assumed")
+            pauseUnsafe("Gesture rejected/cancelled — placement not assumed; duplicate blocked")
             return true
         }
 
@@ -277,9 +300,32 @@ class Agent(
             return true
         }
 
+        // Clear the guard only after both independent checks pass.
+        clearAttempt(attemptKey)
         geoCache = afterGeo
         onStatus("Placement verified: board and tray match expected move")
         return true
+    }
+
+    private fun moveAttemptKey(
+        grid: Array<BooleanArray>,
+        pieces: List<BoardReader.Piece>,
+        move: BlockSolver.Move
+    ): String {
+        val boardSignature = buildString {
+            for (y in grid.first().indices) {
+                for (x in grid.indices) append(if (grid[x][y]) '1' else '0')
+                append('/')
+            }
+        }
+        fun shapeSignature(piece: BoardReader.Piece): String =
+            "${piece.w}x${piece.h}:" +
+                piece.cells.sortedWith(compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first })
+                    .joinToString(";") { "${it.first},${it.second}" }
+        val traySignature = pieces.map(::shapeSignature).sorted().joinToString("|")
+        val selectedSignature = shapeSignature(move.piece)
+        return "board=$boardSignature|tray=$traySignature|selected=$selectedSignature|" +
+            "origin=${move.x},${move.y}"
     }
 
     private suspend fun awaitFreshFrame(
