@@ -78,6 +78,22 @@ class BoardOccupancyClassifierTest {
         assertTrue(result.diagnostic.contains("3,4"))
     }
 
+
+    @Test
+    fun rejectsSubtleBlueTileInsteadOfTreatingItAsEmptySpace() {
+        val cells = board()
+        // This color is close enough to the blue background to be absorbed into
+        // the old broad background threshold, but is not a confidently empty
+        // cell. The classifier must refuse the board rather than risk overlap.
+        cells[0][0] = BoardOccupancyClassifier.Rgb(68, 56, 118)
+
+        val result = BoardOccupancyClassifier.classify(cells)
+
+        assertNull("near-background tile must not be assumed empty", result.grid)
+        assertTrue(result.diagnostic.contains("ambiguous cells"))
+        assertTrue(result.diagnostic.contains("0,0"))
+    }
+
     @Test
     fun rejectsBoardWithoutEnoughConsistentEmptyCellBackgroundSamples() {
         val cells = Array(8) { x ->
