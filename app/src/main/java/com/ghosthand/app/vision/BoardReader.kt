@@ -56,34 +56,73 @@ class BoardReader {
         return Piece(name, cells, rows[0].length, rows.size)
     }
 
+    var lastDiagnostic: String = "not scanned"
+        private set
+
     fun read(bmp: Bitmap, geo: GameGeometry.Geo): Reading? {
-        val cellLevels = Array(geo.cols) { FloatArray(geo.rows) }
+        lastDiagnostic = "board scan not completed"
+        if (bmp.width <= 0 || bmp.height <= 0 || geo.cols < 4 || geo.rows < 4 ||
+            geo.cell <= 0f || !geo.cell.isFinite()
+        ) {
+            lastDiagnostic = "board rejected: invalid bitmap or grid geometry"
+            return null
+        }
 
-        for (x in 0 until geo.cols) for (y in 0 until geo.rows) {
-            // Sample a small 3x3 patch in the tile face, not its border. Empty
-            // Woodoku cells are dark navy; colored blocks and flower tiles are
-            // substantially brighter. Saturation alone cannot distinguish them.
-            val samples = IntArray(9)
-            var index = 0
-            for (fy in 0..2) for (fx in 0..2) {
-                val px = (geo.ox + (x + 0.34f + fx * 0.16f) * geo.cell)
-                    .toInt().coerceIn(0, bmp.width - 1)
-                val py = (geo.oy + (y + 0.34f + fy * 0.16f) * geo.cell)
-                    .toInt().coerceIn(0, bmp.height - 1)
-                samples[index++] = luminance(bmp.getPixel(px, py))
+        // Sample the interior of each cell at 25 points. Per-channel medians
+        // suppress antialiasing, animation sparkles and isolated pixel noise.
+        // The classifier then learns the board's dominant empty-cell color;
+        // it never compares cells to the darkest pixel/cell on the board.
+        val cellColors = Array(geo.cols) { x ->
+            Array(geo.rows) { y ->
+                val red = IntArray(25)
+                val green = IntArray(25)
+                val blue = IntArray(25)
+                var index = 0
+                for (fy in 0..4) for (fx in 0..4) {
+                    val fractionX = 0.30f + fx * 0.10f
+                    val fractionY = 0.30f + fy * 0.10f
+                    val px = (geo.ox + (x + fractionX) * geo.cell)
+                        .toInt().coerceIn(0, bmp.width - 1)
+                    val py = (geo.oy + (y + fractionY) * geo.cell)
+                        .toInt().coerceIn(0, bmp.height - 1)
+                    val pixel = bmp.getPixel(px, py)
+                    red[index] = Color.red(pixel)
+                    green[index] = Color.green(pixel)
+                    blue[index] = Color.blue(pixel)
+                    index++
+                }
+                BoardOccupancyClassifier.Rgb(
+                    medianChannel(red), medianChannel(green), medianChannel(blue)
+                )
             }
-            samples.sort()
-            cellLevels[x][y] = samples[samples.size / 2].toFloat()
         }
 
-        val darkestCell = cellLevels.minOf { col -> col.minOrNull() ?: 255f }
-        val occupiedThreshold = maxOf(76f, darkestCell + 28f)
-        val grid = Array(geo.cols) { x ->
-            BooleanArray(geo.rows) { y -> cellLevels[x][y] > occupiedThreshold }
+        val occupancy = BoardOccupancyClassifier.classify(cellColors)
+        val grid = occupancy.grid ?: run {
+            lastDiagnostic = occupancy.diagnostic
+            android.util.Log.w("GhostHandBoard", lastDiagnostic)
+            return null
         }
+        lastDiagnostic = occupancy.diagnostic
+        val gridMap = buildString {
+            for (y in 0 until geo.rows) {
+                if (y > 0) append('/')
+                for (x in 0 until geo.cols) append(if (grid[x][y]) '1' else '0')
+            }
+        }
+        android.util.Log.i("GhostHandBoard", "$lastDiagnostic; map=$gridMap")
 
-        val tray = readTray(bmp, geo) ?: return null
+        val tray = readTray(bmp, geo) ?: run {
+            lastDiagnostic = "$lastDiagnostic; tray rejected: $lastTrayDiagnostic"
+            android.util.Log.w("GhostHandBoard", lastDiagnostic)
+            return null
+        }
         return Reading(grid, tray, geo, bmp.width, bmp.height)
+    }
+
+    private fun medianChannel(values: IntArray): Int {
+        values.sort()
+        return values[values.size / 2]
     }
 
     /**
