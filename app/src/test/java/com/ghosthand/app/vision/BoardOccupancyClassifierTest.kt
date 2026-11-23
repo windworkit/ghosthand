@@ -35,7 +35,7 @@ class BoardOccupancyClassifierTest {
         assertTrue(darkRedLuma < emptyLuma)
 
         val result = BoardOccupancyClassifier.classify(cells)
-        val grid = result.grid ?: fail(result.diagnostic) as Array<BooleanArray>
+        val grid = result.grid ?: throw AssertionError(result.diagnostic)
 
         assertTrue(grid[2][3])
         assertTrue(grid[4][1])
@@ -52,7 +52,7 @@ class BoardOccupancyClassifierTest {
         val cells = board()
         cells[3][4] = BoardOccupancyClassifier.Rgb(112, 20, 30)
         val classification = BoardOccupancyClassifier.classify(cells)
-        val grid = classification.grid ?: fail(classification.diagnostic) as Array<BooleanArray>
+        val grid = classification.grid ?: throw AssertionError(classification.diagnostic)
         val single = BoardReader.Piece(
             name = "single",
             cells = listOf(0 to 0),
@@ -99,7 +99,7 @@ class BoardOccupancyClassifierTest {
     @Test
     fun classifiesAnEntirelyEmptyBoardAsEmpty() {
         val result = BoardOccupancyClassifier.classify(board())
-        val grid = result.grid ?: fail(result.diagnostic) as Array<BooleanArray>
+        val grid = result.grid ?: throw AssertionError(result.diagnostic)
 
         assertTrue(grid.all { column -> column.none { it } })
         assertTrue(result.diagnostic.contains("empty=64 occupied=0"))
