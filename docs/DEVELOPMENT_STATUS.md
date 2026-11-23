@@ -32,6 +32,9 @@ Build #53 did not have one coordinate space shared by capture and touch:
 ### Geometry, pieces and solving
 
 - Geometry now requires a fully contained 8x8 lattice, consistent grid-line spacing and near-square cell pitch.
+- Replaced the board-wide darkest-cell luminance cutoff with a dedicated RGB occupancy classifier. Each board cell is sampled at 25 interior points; per-channel medians suppress pixel noise, and the dominant cell-color cluster estimates the empty-cell background.
+- Cells close to the learned background are marked empty, cells with strong color separation are occupied, and cells in the confidence gap reject the entire board. Smart Play does not invoke the solver on a rejected board.
+- Board occupancy diagnostics are written to Logcat (`GhostHandBoard`), including empty/occupied counts, estimated background RGB and the full 8x8 occupancy map.
 - Cell pitch is retained as a float so rounding does not accumulate across eight cells.
 - All cell centers are calculated by one helper and invalid cells are rejected.
 - Tray recognition was refactored through a pure Kotlin RGB/projection-mask analyzer. The reader records detected tray bounds, grab point and the grabbed cell's anchor within the shape.
@@ -59,13 +62,14 @@ The current JVM test suite covers:
 - 8x8 bounds, fractional pitch, square-cell pitch, uniform line spacing and cell-center calculations.
 - Legal/illegal placements, occupied collisions, malformed boards/shapes, simultaneous row/column clears and consecutive moves.
 - Blue, red, pink, orange and special-color tray pixels; one/two/three occupied slots; empty slots; 3x3 and larger supported shapes; malformed/noisy masks.
+- Board occupancy fixtures for dark-red blocks whose luminance is below the empty-cell background, multiple colored blocks, small background-color variation, uncertain-cell rejection, missing background-cluster rejection, and solver rejection of a destination occupied according to vision.
 
 **Important:** tray-mask tests are synthetic. No Woodoku Blast screenshot fixtures were available in the repository or accessible conversation files during this work. These tests are not a substitute for real-game screenshots or Fold 7 device testing.
 
 ## Known limitations and unverified acceptance items
 
 - No actual Samsung Galaxy Z Fold 7 is connected to this development environment. Installation, live capture alignment, real gesture endpoints, landed pieces and complete gameplay are unverified.
-- The board model currently records cells as occupied/empty. It does not yet classify distinct obstacle/special-tile types. The current luminance-based board reader could misclassify a dark special tile; this requires representative screenshots and dedicated fixtures.
+- The board model currently records cells as occupied/empty; it does not yet classify distinct obstacle/special-tile types. The new occupancy tests use synthetic RGB data, not captured Woodoku Blast fixtures. Real screenshot validation is still required to confirm the chosen color-distance confidence bands against the game's live board, themes, effects and special tiles. A cell whose appearance is too close to the learned empty background is a remaining visual limitation; representative screenshots are needed to tune or extend the model.
 - Diagnostics are available in the floating status pill and Logcat (`GhostHandPlan`, `GhostHandTouch`). A drawn spatial overlay on the game surface is not implemented; adding one requires care because it could contaminate the captured frame or intercept touches.
 - A successful Gradle task or APK artifact is only a build result. It does not demonstrate real placement or a completed game sequence.
 
@@ -80,4 +84,4 @@ Use the folded cover display in portrait orientation:
 5. If available, collect Logcat entries for `GhostHandPlan` and `GhostHandTouch`. Those records include the exact intended frame points, transformed touch endpoints, display snapshot and gesture callback result.
 6. Do not continue a sequence after any rejection or mismatch. The agent should stop and report the failed verification.
 
-The next engineering step is to compare those real screenshots/diagnostics with the detected 8x8 cell lattice and actual touch result, then add them as regression fixtures. Do not mark the project complete until the full acceptance sequence has been demonstrated on the Fold 7.
+The next engineering step is to compare real Fold 7 screenshots and `GhostHandBoard` occupancy maps with the visible board, then add those captures as regression fixtures. Do not mark the project complete until a real legal placement and the full acceptance sequence have been demonstrated on the Fold 7.
