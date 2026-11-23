@@ -38,7 +38,7 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
                 for (x in 0..cols - p.w) for (y in 0..rows - p.h) {
                     if (!fits(work, p, x, y)) continue
                     val s = scorePlacement(work, p, x, y, pieces.filterIndexed { j, _ -> j != i })
-                    if (s >= bs) { bs = s; bi = x to y }
+                    if (s > bs) { bs = s; bi = x to y }
                 }
                 if (bi == null) { dead = true; break }
                 work = apply(work, p, bi.first, bi.second)
