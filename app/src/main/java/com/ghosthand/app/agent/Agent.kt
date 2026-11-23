@@ -168,6 +168,23 @@ class Agent(
             return true
         }
 
+        // Independent last-moment collision audit. Do not rely only on the
+        // solver's candidate flag: enumerate every occupied offset of the
+        // selected shape against the current classified 8x8 matrix.
+        val destinationCells = piece.cells.map { (dx, dy) -> (move.x + dx) to (move.y + dy) }
+        val collisions = destinationCells.filter { (x, y) ->
+            x !in 0 until geo.cols || y !in 0 until geo.rows ||
+                reading.grid[x][y]
+        }
+        if (collisions.isNotEmpty()) {
+            android.util.Log.e(
+                "GhostHandPlan",
+                "HARD BLOCK: target overlaps classified occupied/out-of-bounds cells=$collisions"
+            )
+            pauseUnsafe("HARD BLOCK: target cells overlap occupied board cells $collisions")
+            return true
+        }
+
         val anchorX = move.x + piece.anchorCellX
         val anchorY = move.y + piece.anchorCellY
         val drop = GameGeometry.cellCenter(geo, anchorX, anchorY)
@@ -230,7 +247,8 @@ class Agent(
             }
         }
         val planDiagnostic =
-            "solver piece=${move.pieceIdx} origin=(${move.x},${move.y}) anchor=(${anchorX},${anchorY}); " +
+            "solver piece=${move.pieceIdx} origin=(${move.x},${move.y}) anchor=(${anchorX},${anchorY}) " +
+                "shape=${piece.w}x${piece.h}/${piece.cells.size} targets=${destinationCells}; " +
                 "boardFrame=(${geo.ox},${geo.oy})-(${boardRight},${boardBottom}) cell=${geo.cell}; " +
                 "trayFrame=(${trayBounds.left},${trayBounds.top})-(${trayBounds.right},${trayBounds.bottom}); " +
                 "pickupFrame=(${grabX},${grabY}) dropFrame=(${drop.first},${drop.second}); " +
