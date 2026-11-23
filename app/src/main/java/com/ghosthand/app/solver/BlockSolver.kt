@@ -92,7 +92,9 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
             for (yy in 0 until rows) n[xx][yy] = false
         return n
     }
+fun canFit(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Boolean = fits(g, p, x, y)
 
+fun place(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Array<BooleanArray> = apply(g, p, x, y)
     private fun scorePlacement(
         g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int,
         others: List<BoardReader.Piece>
