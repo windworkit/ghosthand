@@ -126,12 +126,14 @@ class Agent(
         }
 
         val reading = reader.read(bmp, geo) ?: run {
-            onStatus("Tray: no pieces — ${reader.lastTrayDiagnostic}")
+            // Never invoke the solver with an untrusted board. An ambiguous
+            // cell is a hard stop, not an assumed empty destination.
+            onStatus("Vision stopped: ${reader.lastDiagnostic}")
             geoCache = null
             return false
         }
 
-        onStatus("Tray ${reading.pieces.size}: " +
+        onStatus("${reader.lastDiagnostic}; tray ${reading.pieces.size}: " +
             reading.pieces.joinToString(", ") { "${it.w}x${it.h}" })
 
         val solver = BlockSolver(geo.cols, geo.rows)
@@ -262,7 +264,7 @@ class Agent(
         }
         val afterReading = reader.read(afterBmp, afterGeo)
         if (afterReading == null) {
-            pauseUnsafe("Post-move board/tray could not be read")
+            pauseUnsafe("Post-move vision rejected: ${reader.lastDiagnostic}")
             return true
         }
 
