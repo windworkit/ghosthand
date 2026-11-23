@@ -55,7 +55,13 @@ class BoardReader {
         return Piece(name, cells, rows[0].length, rows.size)
     }
 
-    fun read(bmp: Bitmap, geo: GameGeometry.Geo): Reading? {
+        fun read(bmp: Bitmap, geo: GameGeometry.Geo): Reading? {
+        val grid = readGrid(bmp, geo)
+        val tray = readTray(bmp, geo) ?: return null
+        return Reading(grid, tray, geo, bmp.width, bmp.height)
+    }
+
+    fun readGrid(bmp: Bitmap, geo: GameGeometry.Geo): Array<BooleanArray> {
         val cellLevels = Array(geo.cols) { FloatArray(geo.rows) }
 
         for (x in 0 until geo.cols) for (y in 0 until geo.rows) {
@@ -77,12 +83,9 @@ class BoardReader {
 
         val darkestCell = cellLevels.minOf { col -> col.minOrNull() ?: 255f }
         val occupiedThreshold = maxOf(76f, darkestCell + 28f)
-        val grid = Array(geo.cols) { x ->
+                return Array(geo.cols) { x ->
             BooleanArray(geo.rows) { y -> cellLevels[x][y] > occupiedThreshold }
         }
-
-        val tray = readTray(bmp, geo) ?: return null
-        return Reading(grid, tray, geo, bmp.width, bmp.height)
     }
 
     /**
