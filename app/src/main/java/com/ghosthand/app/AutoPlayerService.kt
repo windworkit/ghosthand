@@ -88,7 +88,7 @@ class AutoPlayerService : AccessibilityService() {
         if (isRunning.value || script.steps.isEmpty()) return
         isRunning.value = true
         paused.value = false
-        statusText.value = "Starting…"
+                statusText.value = "Starting… build ${BuildConfig.GIT_SHA}"
         main.post { showPill(script.keepAwake) }
         playJob = scope.launch {
             try {
@@ -293,7 +293,7 @@ class AutoPlayerService : AccessibilityService() {
 
         playJob = scope.launch {
             try {
-                Agent(ocr, ScreenClassifier(ocr), AdSentinel(ocr, motor), motor) {
+                                Agent(ocr, ScreenClassifier(ocr), AdSentinel(ocr, motor), motor, isPaused = { paused.value }) {
                     statusText.value = it
                     main.post {
                         pillLabel?.text = if (it.startsWith("No fit:")) it.take(64) else it.take(28)
