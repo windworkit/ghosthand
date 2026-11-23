@@ -74,6 +74,23 @@ class BlockSolverTest {
     }
 
 
+
+    @Test
+    fun largeThreeByThreeSquareNeverFitsAcrossAnOccupiedTopLeftCell() {
+        val solver = BlockSolver(8, 8)
+        val square3 = piece(
+            (0..2).flatMap { y -> (0..2).map { x -> x to y } },
+            3,
+            3
+        )
+        val board = emptyBoard()
+        board[1][1] = true
+
+        assertFalse("one occupied cell blocks the entire 3x3 drop", solver.isLegalPlacement(board, square3, 0, 0))
+        val move = solver.solve(board, listOf(square3))!!.first()
+        assertFalse("solver must not return the blocked top-left placement", move.x == 0 && move.y == 0)
+    }
+
     @Test
     fun equalScorePlacementsKeepFirstCandidateInsteadOfRepeatingLastScannedCell() {
         val solver = BlockSolver(8, 8)
