@@ -68,19 +68,19 @@ class BoardReader {
             return null
         }
 
-        // Sample the interior of each cell at 25 points. Per-channel medians
-        // suppress antialiasing, animation sparkles and isolated pixel noise.
-        // The classifier then learns the board's dominant empty-cell color;
-        // it never compares cells to the darkest pixel/cell on the board.
+        // Sample a broad 7x7 interior grid in every cell. A 5x5 sample
+        // concentrated at 30%-70% can miss tile faces/bevels when the detected
+        // lattice is slightly offset; this wider patch makes the per-cell
+        // median representative of the whole playable square.
         val cellColors = Array(geo.cols) { x ->
             Array(geo.rows) { y ->
-                val red = IntArray(25)
-                val green = IntArray(25)
-                val blue = IntArray(25)
+                val red = IntArray(49)
+                val green = IntArray(49)
+                val blue = IntArray(49)
                 var index = 0
-                for (fy in 0..4) for (fx in 0..4) {
-                    val fractionX = 0.30f + fx * 0.10f
-                    val fractionY = 0.30f + fy * 0.10f
+                for (fy in 0..6) for (fx in 0..6) {
+                    val fractionX = 0.20f + fx * 0.10f
+                    val fractionY = 0.20f + fy * 0.10f
                     val px = (geo.ox + (x + fractionX) * geo.cell)
                         .toInt().coerceIn(0, bmp.width - 1)
                     val py = (geo.oy + (y + fractionY) * geo.cell)
