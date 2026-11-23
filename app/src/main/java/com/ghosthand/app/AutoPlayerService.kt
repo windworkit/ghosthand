@@ -375,16 +375,36 @@ class AutoPlayerService : AccessibilityService() {
 
         playJob = scope.launch {
             try {
-                Agent(ocr, ScreenClassifier(ocr), AdSentinel(ocr, motor), motor) {
-                    statusText.value = it
-                    main.post {
-                        pillLabel?.text = when {
-                            it.startsWith("Plan ") -> it.replace("; ", "\n").take(220)
-                            it.startsWith("No fit:") -> it.take(64)
-                            else -> it.take(28)
+                val attemptPrefs = getSharedPreferences("ghosthand_move_guard", MODE_PRIVATE)
+                Agent(
+                    ocr,
+                    ScreenClassifier(ocr),
+                    AdSentinel(ocr, motor),
+                    motor,
+                    onStatus = { message ->
+                        statusText.value = message
+                        main.post {
+                            pillLabel?.text = when {
+                                message.startsWith("Plan ") -> message.replace("; ", "\n").take(220)
+                                message.startsWith("No fit:") -> message.take(64)
+                                else -> message.take(28)
+                            }
+                        }
+                    },
+                    wasAttempted = { key ->
+                        attemptPrefs.getString("pending_unverified_move", null) == key
+                    },
+                    recordAttempt = { key ->
+                        attemptPrefs.edit()
+                            .putString("pending_unverified_move", key)
+                            .apply()
+                    },
+                    clearAttempt = { key ->
+                        if (attemptPrefs.getString("pending_unverified_move", null) == key) {
+                            attemptPrefs.edit().remove("pending_unverified_move").apply()
                         }
                     }
-                }.loop { AgentBus.frame.value }
+                ).loop { AgentBus.frame.value }
             } catch (e: CancellationException) {
                 statusText.value = "Stopped"
                 throw e
