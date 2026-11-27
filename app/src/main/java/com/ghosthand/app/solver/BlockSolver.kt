@@ -79,7 +79,12 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
     }
 
     private fun fits(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Boolean {
-        if (x + p.w > cols || y + p.h > rows) return false
+        if (x < 0 || y < 0 || p.w !in 1..5 || p.h !in 1..5 ||
+            x + p.w > cols || y + p.h > rows || p.cells.isEmpty()
+        ) return false
+        if (p.cells.any { (cx, cy) -> cx !in 0 until p.w || cy !in 0 until p.h }) {
+            return false
+        }
         return p.cells.all { (cx, cy) -> !g[x + cx][y + cy] }
     }
 

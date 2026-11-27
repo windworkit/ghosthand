@@ -25,7 +25,10 @@ class BoardReader {
         val pieces: List<Piece>,
         val geo: GameGeometry.Geo,
         val bmpW: Int,
-        val bmpH: Int
+        val bmpH: Int,
+        // Occupancy is not the same thing as object identity. Unrecognized
+        // occupied cells remain explicit instead of being assumed ordinary.
+        val boardCells: Array<Array<BoardCellObservation>>
     )
 
     private data class Blob(
@@ -38,7 +41,7 @@ class BoardReader {
 
     private val library: List<Piece> = listOf(
         "X", "XX", "XXX", "XXXX", "XXXXX",
-        "XX/XX", "XXX/XXX/XXX", "XXX/XXX",
+        "XX/XX", "XX/XX/XX", "XXX/XXX", "XXX/XXX/XXX",
         "X./XX", "XX/X.", "XX/.X", ".X/XX",
         "X../X../XXX", "XXX/X../X..", "XXX/..X/..X", "..X/..X/XXX",
         ".X/.X/XX", "XX/X./X.", "X./X./XXX", "XXX/.X/.X",
@@ -58,7 +61,22 @@ class BoardReader {
         fun read(bmp: Bitmap, geo: GameGeometry.Geo): Reading? {
         val grid = readGrid(bmp, geo)
         val tray = readTray(bmp, geo) ?: return null
-        return Reading(grid, tray, geo, bmp.width, bmp.height)
+        val boardCells = Array(geo.cols) { x ->
+            Array(geo.rows) { y ->
+                val occupied = grid[x][y]
+                BoardCellObservation(
+                    column = x,
+                    row = y,
+                    occupied = occupied,
+                    objectType = if (occupied) {
+                        BoardObjectType.UNCLASSIFIED_OCCUPIED
+                    } else {
+                        BoardObjectType.EMPTY
+                    }
+                )
+            }
+        }
+        return Reading(grid, tray, geo, bmp.width, bmp.height, boardCells)
     }
 
     fun readGrid(bmp: Bitmap, geo: GameGeometry.Geo): Array<BooleanArray> {
@@ -195,7 +213,7 @@ class BoardReader {
         val y0 = (boardBottom + geo.cell * 0.45f).toInt().coerceAtLeast(0)
         val y1 = minOf(
             (boardBottom + geo.cell * 3.1f).toInt(),
-            (bmp.height * 0.88f).toInt(),
+            (bmp.height * 0.96f).toInt(),
             bmp.height
         )
         if (y1 - y0 < geo.cell * 0.7f) return null

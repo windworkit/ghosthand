@@ -46,4 +46,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.2")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
+
+    testImplementation("junit:junit:4.13.2")
 }

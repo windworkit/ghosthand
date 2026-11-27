@@ -18,7 +18,7 @@ jobs:
       - name: Build debug APK
         env:
           GIT_SHA: ${{ github.sha }}
-        run: gradle assembleDebug --no-daemon -PgitSha=$GIT_SHA -Dorg.gradle.jvmargs=-Xmx3g
+        run: gradle testDebugUnitTest assembleDebug --no-daemon -PgitSha=$GIT_SHA -Dorg.gradle.jvmargs=-Xmx3g
       - uses: actions/upload-artifact@v4
         with:
           name: GhostHand-APK

@@ -112,10 +112,13 @@ object GameGeometry {
             return selected
         }
 
-        val topLo = (h * 0.22f).toInt().coerceAtLeast(3)
-        val topHi = (h * 0.45f).toInt().coerceAtMost(h - 3)
-        val bottomLo = (h * 0.58f).toInt().coerceAtLeast(3)
-        val bottomHi = (h * 0.78f).toInt().coerceAtMost(h - 3)
+        // The Fold's cover and inner displays have very different aspect
+        // ratios. Search most of the usable vertical span instead of assuming
+        // a conventional phone's board position.
+        val topLo = (h * 0.05f).toInt().coerceAtLeast(3)
+        val topHi = (h * 0.70f).toInt().coerceAtMost(h - 3)
+        val bottomLo = (h * 0.30f).toInt().coerceAtLeast(3)
+        val bottomHi = (h * 0.96f).toInt().coerceAtMost(h - 3)
         if (topHi <= topLo || bottomHi <= bottomLo) return null
 
         val separation = (w * 0.015f).roundToInt().coerceIn(6, 14)
@@ -179,7 +182,10 @@ object GameGeometry {
             return best
         }
 
-        val targetSide = w * 0.96f
+        // A square board is constrained by both display width and height.
+        // This remains sensible on the narrow cover screen and the wider
+        // unfolded screen instead of assuming the board spans 96% of width.
+        val targetSide = minOf(w * 0.96f, h * 0.82f)
         var bestTop = -1
         var bestBottom = -1
         var bestRails: Rails? = null
@@ -190,7 +196,7 @@ object GameGeometry {
             for ((bottom, bottomStrength) in bottomCandidates) {
                 if (bottomStrength < 10f) continue
                 val height = (bottom - top).toFloat()
-                if (height < w * 0.70f || height > w * 1.18f) continue
+                if (height < targetSide * 0.70f || height > targetSide * 1.20f) continue
 
                 val rails = findVerticalRails(top, bottom) ?: continue
                 val width = (rails.right - rails.left).toFloat()

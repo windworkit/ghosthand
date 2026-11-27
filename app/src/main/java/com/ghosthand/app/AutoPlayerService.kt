@@ -188,17 +188,21 @@ class AutoPlayerService : AccessibilityService() {
         dispatch(path, st.ms)
     }
 
-    private suspend fun dispatch(path: Path, durationMs: Long) {
+    private suspend fun dispatch(path: Path, durationMs: Long): Boolean {
         val dur = durationMs.coerceIn(40L, 60_000L)
         return suspendCancellableCoroutine { cont ->
             val gesture = GestureDescription.Builder()
                 .addStroke(GestureDescription.StrokeDescription(path, 0, dur))
                 .build()
-            val ok = dispatchGesture(gesture, object : GestureResultCallback() {
-                override fun onCompleted(g: GestureDescription?) { if (cont.isActive) cont.resume(Unit) }
-                override fun onCancelled(g: GestureDescription?) { if (cont.isActive) cont.resume(Unit) }
+            val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) {
+                    if (cont.isActive) cont.resume(true)
+                }
+                override fun onCancelled(g: GestureDescription?) {
+                    if (cont.isActive) cont.resume(false)
+                }
             }, null)
-            if (!ok && cont.isActive) cont.resume(Unit)
+            if (!accepted && cont.isActive) cont.resume(false)
         }
     }
 
@@ -258,7 +262,7 @@ class AutoPlayerService : AccessibilityService() {
                 val j = 5f * resources.displayMetrics.density
                 dispatch(Path().apply { moveTo(x * w + off(j), y * h + off(j)) }, 48 + rnd(40))
             }
-            override suspend fun drag(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long) {
+            override suspend fun drag(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long): Boolean {
                 val (w, h) = screen()
 
                 // Smart Play relies on cell-level placement. Random offsets or
@@ -273,8 +277,9 @@ class AutoPlayerService : AccessibilityService() {
                     lineTo(endX, endY)
                 }
 
-                dispatch(path, ms.coerceIn(500, 1800))
+                val completed = dispatch(path, ms.coerceIn(500, 1800))
                 delay(220)
+                return completed
             }
             override fun isFrameAligned(frameWidth: Int, frameHeight: Int): Boolean {
                 if (frameWidth <= 0 || frameHeight <= 0) return false

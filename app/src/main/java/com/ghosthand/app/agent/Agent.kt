@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import com.ghosthand.app.solver.BlockSolver
 import com.ghosthand.app.vision.BoardReader
 import com.ghosthand.app.vision.GameGeometry
+import com.ghosthand.app.vision.BoardObjectType
+import com.ghosthand.app.vision.ObjectiveReader
 import com.ghosthand.app.vision.Ocr
 import com.ghosthand.app.vision.ScreenClassifier
 import com.ghosthand.app.vision.ScreenState
@@ -23,6 +25,7 @@ class Agent(
 ) {
     private var geoCache: GameGeometry.Geo? = null
     private val reader = BoardReader()
+    private val objectiveReader = ObjectiveReader()
     // Stop blind retries when the game did not accept a placement.
     private var stopOnFailedPlacement = false
     private var wasPaused = false
@@ -144,8 +147,21 @@ class Agent(
             // Tray is empty/animating between sets; keep the grid calibration.
             return false
         }
-        val traySummary = reading.pieces.joinToString(", ") { "${it.w}x${it.h}" }
-        onStatus("Tray ${reading.pieces.size}: $traySummary")
+        val traySummary = reading.pieces.joinToString(", ") { "${it.w}x${it.h}/${it.cells.size}" }
+        val objectiveSnapshot = objectiveReader.read(classifier.lastWords, bmp.width, bmp.height)
+        val objectiveSummary = objectiveSnapshot.counters.joinToString(", ") {
+            "${it.type.name.lowercase()} ${it.current ?: "?"}/${it.target ?: "?"}"
+        }.ifEmpty {
+            if (objectiveSnapshot.unclassifiedNumericTokens.isNotEmpty()) {
+                "unlabeled counters: ${objectiveSnapshot.unclassifiedNumericTokens.joinToString("/")}"
+            } else {
+                "no readable objective text"
+            }
+        }
+        val unclassifiedOccupied = reading.boardCells.sumOf { column ->
+            column.count { it.objectType == BoardObjectType.UNCLASSIFIED_OCCUPIED }
+        }
+        onStatus("Tray ${reading.pieces.size}: $traySummary; occupied=$unclassifiedOccupied; goals=$objectiveSummary")
         val solver = BlockSolver(geo.cols, geo.rows)
         val moves = solver.solve(reading.grid, reading.pieces)
 
@@ -178,7 +194,7 @@ class Agent(
             val dropX = (centerX + adj.x * cell).coerceIn(2f, reading.bmpW - 3f)
             val dropY = (centerY + adj.y * cell).coerceIn(2f, reading.bmpH - 3f)
 
-            onStatus("Plan p${m.pieceIdx + 1} -> c${m.x + 1} r${m.y + 1} #${attempt + 1}")
+            onStatus("Plan p${m.pieceIdx + 1} -> c${m.x + 1} r${m.y + 1} #${attempt + 1}; goals=$objectiveSummary")
             motor.drag(
                 grabX / reading.bmpW, grabY / reading.bmpH,
                 dropX / reading.bmpW, dropY / reading.bmpH,

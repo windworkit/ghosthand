@@ -9,6 +9,11 @@ sealed interface ScreenState {
 
 class ScreenClassifier(private val ocr: Ocr) {
 
+    // Share the OCR result with objective recognition; avoid a second ML Kit
+    // inference pass over every captured frame.
+    var lastWords: List<OcrWord> = emptyList()
+        private set
+
     private val adWords = listOf(
         "skip", "install", "download", "play now", "get the app", "shop now",
         "learn more", "sponsored", "sign up", "register", "order now", "open app"
@@ -20,6 +25,7 @@ class ScreenClassifier(private val ocr: Ocr) {
 
     suspend fun classify(bmp: android.graphics.Bitmap): ScreenState {
         val words = ocr.words(bmp)
+        lastWords = words
         val stats = PixelMath.stats(bmp)
 
         if (stats.distinctColors < 12 && stats.edgeDensity < 0.03f) {
