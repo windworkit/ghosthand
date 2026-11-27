@@ -36,6 +36,15 @@ class ObjectiveReaderTest {
     }
 
     @Test
+    fun preservesCounterRatiosWhenOcrSplitsThemFromIcons() {
+        val words = listOf(OcrWord("2/7", 0.8f, 0.2f, 0.05f, 0.03f))
+        val snapshot = ObjectiveReader().read(words, emptyList(), 720, 1280)
+
+        assertTrue(snapshot.counters.isEmpty())
+        assertEquals(listOf("2/7"), snapshot.unclassifiedNumericTokens)
+    }
+
+    @Test
     fun recognizesOtherExplicitObjectiveLabels() {
         val labels = listOf(
             "Butterflies 1/4",

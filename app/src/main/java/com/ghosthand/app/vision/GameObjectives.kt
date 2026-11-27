@@ -112,7 +112,9 @@ class ObjectiveReader {
         }.distinctBy { it.type to (it.screenY * 100).roundToInt() }
 
         val numeric = words.mapNotNull { word ->
-            word.text.takeIf { it.matches(NUMBER) }
+            word.text.takeIf {
+                it.matches(NUMBER) || RATIO.containsMatchIn(it)
+            }
         }
         return ObjectiveSnapshot(counters, numeric, width, height)
     }
