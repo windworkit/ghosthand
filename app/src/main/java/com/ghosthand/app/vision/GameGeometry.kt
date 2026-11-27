@@ -158,8 +158,10 @@ object GameGeometry {
                 return total / count.coerceAtLeast(1)
             }
 
-            val leftEnd = (w * 0.12f).toInt().coerceAtLeast(3)
-            val rightStart = (w * 0.88f).toInt().coerceAtMost(w - 3)
+            // The Fold's inner display can place a square board around
+            // 74% of display width. Search beyond the old 12% edge margins.
+            val leftEnd = (w * 0.30f).toInt().coerceAtLeast(3)
+            val rightStart = (w * 0.70f).toInt().coerceAtMost(w - 3)
             val leftCandidates = (2 until leftEnd)
                 .map { it to verticalEdge(it) }
                 .sortedByDescending { it.second }
