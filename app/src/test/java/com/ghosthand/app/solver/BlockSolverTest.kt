@@ -69,6 +69,15 @@ class BlockSolverTest {
     }
 
     @Test
+    fun canFitRejectsMalformedGridDimensions() {
+        val malformedGrid = Array(7) { BooleanArray(8) }
+        val single = BoardReader.Piece("single", listOf(0 to 0), 1, 1)
+        val solver = BlockSolver(8, 8)
+
+        assertFalse(solver.canFit(malformedGrid, single, 0, 0))
+    }
+
+    @Test
     fun rejectsNegativeAndOutOfBoardPlacements() {
         val grid = Array(8) { BooleanArray(8) }
         val line = BoardReader.Piece(

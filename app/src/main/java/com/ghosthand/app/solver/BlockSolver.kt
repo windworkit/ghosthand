@@ -95,6 +95,7 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
     }
 
     private fun fits(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Boolean {
+        if (g.size != cols || g.any { it.size != rows }) return false
         if (x < 0 || y < 0 || p.w !in 1..5 || p.h !in 1..5 ||
             x + p.w > cols || y + p.h > rows || p.cells.isEmpty()
         ) return false
@@ -121,9 +122,13 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
         }
         return n
     }
-fun canFit(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Boolean = fits(g, p, x, y)
+fun canFit(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Boolean =
+    fits(g, p, x, y)
 
-fun place(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Array<BooleanArray> = apply(g, p, x, y)
+fun place(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Array<BooleanArray> {
+    require(fits(g, p, x, y)) { "Piece cannot be placed at ($x,$y)" }
+    return apply(g, p, x, y)
+}
     private fun scorePlacement(
         g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int,
         others: List<BoardReader.Piece>
