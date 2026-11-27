@@ -7,6 +7,8 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.ghosthand.app.R
 import com.ghosthand.app.AutoPlayerService
@@ -20,6 +22,7 @@ class AgentCaptureService : Service() {
     }
 
     private var caster: ScreenCaster? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val code = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
@@ -50,6 +53,10 @@ class AgentCaptureService : Service() {
                     onStopped = {
                         AgentBus.clear()
                         AutoPlayerService.instance?.stop()
+                        mainHandler.post {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            stopSelf()
+                        }
                     },
                     onFrame = { bmp -> AgentBus.push(bmp) }
                 )
