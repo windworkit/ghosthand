@@ -15,6 +15,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.9'
+      # Reuse one debug identity so APKs from later CI runs can update in place.
       - name: Restore stable Android debug signing key
         uses: actions/cache@v4
         with:
