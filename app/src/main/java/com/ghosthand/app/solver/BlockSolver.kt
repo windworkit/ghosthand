@@ -91,10 +91,18 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
     private fun apply(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Array<BooleanArray> {
         val n = Array(cols) { g[it].clone() }
         p.cells.forEach { (cx, cy) -> n[x + cx][y + cy] = true }
-        for (yy in 0 until rows) if ((0 until cols).all { xx -> n[xx][yy] })
-            for (xx in 0 until cols) n[xx][yy] = false
-        for (xx in 0 until cols) if ((0 until rows).all { yy -> n[xx][yy] })
-            for (yy in 0 until rows) n[xx][yy] = false
+        // Determine all completed lines from the same post-placement board.
+        // Clearing rows first and then checking columns can miss a column that
+        // was full before the row clear removed their shared intersection.
+        val fullRows = BooleanArray(rows) { yy ->
+            (0 until cols).all { xx -> n[xx][yy] }
+        }
+        val fullCols = BooleanArray(cols) { xx ->
+            (0 until rows).all { yy -> n[xx][yy] }
+        }
+        for (xx in 0 until cols) for (yy in 0 until rows) {
+            if (fullRows[yy] || fullCols[xx]) n[xx][yy] = false
+        }
         return n
     }
 fun canFit(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Boolean = fits(g, p, x, y)
