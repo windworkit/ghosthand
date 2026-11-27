@@ -28,7 +28,8 @@ class BoardReader {
         val bmpH: Int,
         // Occupancy is not the same thing as object identity. Unrecognized
         // occupied cells remain explicit instead of being assumed ordinary.
-        val boardCells: Array<Array<BoardCellObservation>>
+        val boardCells: Array<Array<BoardCellObservation>>,
+        val backgroundSupport: Float
     )
 
     private data class Blob(
@@ -59,106 +60,96 @@ class BoardReader {
     }
 
         fun read(bmp: Bitmap, geo: GameGeometry.Geo): Reading? {
-        val (grid, boardCells) = readBoardCells(bmp, geo)
+        val (grid, boardCells, backgroundSupport) = readBoardCells(bmp, geo)
         val tray = readTray(bmp, geo) ?: return null
-        return Reading(grid, tray, geo, bmp.width, bmp.height, boardCells)
+        return Reading(
+            grid, tray, geo, bmp.width, bmp.height, boardCells, backgroundSupport
+        )
     }
 
     fun readGrid(bmp: Bitmap, geo: GameGeometry.Geo): Array<BooleanArray> =
         readBoardCells(bmp, geo).first
 
     /**
-     * Classify board occupancy using both luminance and RGB distance from the
-     * dominant empty-cell surface. This catches dark colored blocks that a
-     * brightness-only threshold can mistake for empty cells.
+     * Classify board occupancy using the board-cell corner/gutter color as a
+     * background reference. The center of a crowded board can be dominated by
+     * colored pieces; sampling corners avoids learning a common block color
+     * as the empty-cell surface.
      *
-     * The detected object type remains UNCLASSIFIED_OCCUPIED until a validated
-     * icon classifier can distinguish ordinary blocks from level objectives.
+     * The object type remains UNCLASSIFIED_OCCUPIED until a validated icon
+     * classifier can distinguish ordinary blocks from level objectives.
      */
     private fun readBoardCells(
         bmp: Bitmap,
         geo: GameGeometry.Geo
-    ): Pair<Array<BooleanArray>, Array<Array<BoardCellObservation>>> {
-        val reds = Array(geo.cols) { IntArray(geo.rows) }
-        val greens = Array(geo.cols) { IntArray(geo.rows) }
-        val blues = Array(geo.cols) { IntArray(geo.rows) }
-        val levels = Array(geo.cols) { IntArray(geo.rows) }
-
+    ): Triple<Array<BooleanArray>, Array<Array<BoardCellObservation>>, Float> {
         fun median(values: IntArray): Int {
             values.sort()
             return values[values.size / 2]
         }
 
-        val buckets = HashMap<Int, IntArray>()
-        for (x in 0 until geo.cols) for (y in 0 until geo.rows) {
-            val rSamples = IntArray(9)
-            val gSamples = IntArray(9)
-            val bSamples = IntArray(9)
-            var index = 0
-            // Sample the tile face, away from its seam and outer border.
-            for (fy in 0..2) for (fx in 0..2) {
-                val px = (geo.ox + (x + 0.34f + fx * 0.16f) * geo.cell)
-                    .toInt().coerceIn(0, bmp.width - 1)
-                val py = (geo.oy + (y + 0.34f + fy * 0.16f) * geo.cell)
-                    .toInt().coerceIn(0, bmp.height - 1)
-                val color = bmp.getPixel(px, py)
-                rSamples[index] = Color.red(color)
-                gSamples[index] = Color.green(color)
-                bSamples[index] = Color.blue(color)
-                index++
-            }
-            val r = median(rSamples)
-            val g = median(gSamples)
-            val b = median(bSamples)
-            reds[x][y] = r
-            greens[x][y] = g
-            blues[x][y] = b
-            levels[x][y] = (r + g + b) / 3
-
-            val bucket = ((r shr 4) shl 8) or ((g shr 4) shl 4) or (b shr 4)
-            val totals = buckets.getOrPut(bucket) { IntArray(4) }
-            totals[0] += r
-            totals[1] += g
-            totals[2] += b
-            totals[3]++
+        fun pixelColor(x: Float, y: Float): RgbColor {
+            val px = (geo.ox + x * geo.cell).toInt().coerceIn(0, bmp.width - 1)
+            val py = (geo.oy + y * geo.cell).toInt().coerceIn(0, bmp.height - 1)
+            val color = bmp.getPixel(px, py)
+            return RgbColor(Color.red(color), Color.green(color), Color.blue(color))
         }
 
-        // Empty cells share the board's largest repeated background color.
-        // Quantization absorbs subtle compression and scaling differences.
-        val background = buckets.maxByOrNull { it.value[3] }?.value
-        val bgR = background?.let { it[0] / it[3] } ?: 30
-        val bgG = background?.let { it[1] / it[3] } ?: 35
-        val bgB = background?.let { it[2] / it[3] } ?: 55
-        val darkestCell = levels.minOf { column -> column.minOrNull() ?: 255 }
-        val brightnessThreshold = maxOf(76, darkestCell + 28)
+        val samples = Array(geo.cols) { x ->
+            Array(geo.rows) { y ->
+                val red = IntArray(9)
+                val green = IntArray(9)
+                val blue = IntArray(9)
+                var index = 0
+                for (fy in 0..2) for (fx in 0..2) {
+                    val color = pixelColor(
+                        x + 0.34f + fx * 0.16f,
+                        y + 0.34f + fy * 0.16f
+                    )
+                    red[index] = color.red
+                    green[index] = color.green
+                    blue[index] = color.blue
+                    index++
+                }
+                val center = RgbColor(median(red), median(green), median(blue))
 
-        val grid = Array(geo.cols) { BooleanArray(geo.rows) }
+                // Sample the narrow perimeter where rounded block faces leave
+                // the empty board surface visible. Multiple edge samples make
+                // the estimate resilient when a few corners contain effects.
+                val edgePositions = listOf(
+                    0.08f to 0.08f, 0.50f to 0.08f, 0.92f to 0.08f,
+                    0.08f to 0.50f,                         0.92f to 0.50f,
+                    0.08f to 0.92f, 0.50f to 0.92f, 0.92f to 0.92f
+                )
+                val edgeColors = edgePositions.map { (sx, sy) ->
+                    pixelColor(x + sx, y + sy)
+                }
+                CellColorSamples(center, edgeColors)
+            }
+        }
+
+        val classified = BoardOccupancyClassifier.classify(samples)
+        val grid = classified.cells.map { column ->
+            BooleanArray(column.size) { y -> column[y].occupied }
+        }.toTypedArray()
         val observations = Array(geo.cols) { x ->
             Array(geo.rows) { y ->
-                val r = reds[x][y]
-                val g = greens[x][y]
-                val b = blues[x][y]
-                val luminance = levels[x][y]
-                val distance = kotlin.math.abs(r - bgR) +
-                    kotlin.math.abs(g - bgG) +
-                    kotlin.math.abs(b - bgB)
-                val occupied = luminance > brightnessThreshold || distance >= 48
-                grid[x][y] = occupied
+                val cell = classified.cells[x][y]
                 BoardCellObservation(
                     column = x,
                     row = y,
-                    occupied = occupied,
-                    objectType = if (occupied) {
+                    occupied = cell.occupied,
+                    objectType = if (cell.occupied) {
                         BoardObjectType.UNCLASSIFIED_OCCUPIED
                     } else {
                         BoardObjectType.EMPTY
                     },
-                    luminance = luminance,
-                    backgroundDistance = distance
+                    luminance = cell.luminance,
+                    backgroundDistance = cell.backgroundDistance
                 )
             }
         }
-        return grid to observations
+        return Triple(grid, observations, classified.backgroundSupport)
     }
 
     /**

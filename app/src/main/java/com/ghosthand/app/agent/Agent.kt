@@ -185,10 +185,20 @@ class Agent(
                 "no readable objective text"
             }
         }
+        if (reading.backgroundSupport < MIN_BACKGROUND_SUPPORT) {
+            stopOnFailedPlacement = true
+            onStatus(
+                "Board colors uncertain (${(reading.backgroundSupport * 100).toInt()}% background samples) — paused"
+            )
+            return true
+        }
         val unclassifiedOccupied = reading.boardCells.sumOf { column ->
             column.count { it.objectType == BoardObjectType.UNCLASSIFIED_OCCUPIED }
         }
-        onStatus("Tray ${reading.pieces.size}: $traySummary; occupied=$unclassifiedOccupied; goals=$objectiveSummary")
+        onStatus(
+            "Tray ${reading.pieces.size}: $traySummary; occupied=$unclassifiedOccupied; " +
+                "background=${(reading.backgroundSupport * 100).toInt()}%; goals=$objectiveSummary"
+        )
         val solver = BlockSolver(geo.cols, geo.rows)
         val moves = solver.solve(reading.grid, reading.pieces)
 
@@ -396,6 +406,8 @@ class Agent(
             android.graphics.Color.green(c) + android.graphics.Color.blue(c)) / 3
 
     private companion object {
+        const val MIN_BACKGROUND_SUPPORT = 0.35f
+
         // Starting guess: finger about two cells below the piece's center
         // (the game lifts the dragged piece above the finger). Replaced by
         // what is observed after the first placement.
