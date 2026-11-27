@@ -335,7 +335,8 @@ class Agent(
             delay(450)
             val bmp = frame() ?: continue
             if (!motor.isFrameFresh() || !motor.isFrameAligned(bmp.width, bmp.height)) return null
-            val grid = reader.readGrid(bmp, geo)
+            val (grid, backgroundSupport) = reader.readGridWithConfidence(bmp, geo)
+            if (backgroundSupport < MIN_BACKGROUND_SUPPORT) return null
             val prev = previous
             if (prev != null && gridsEqual(prev, grid)) return grid
             previous = grid

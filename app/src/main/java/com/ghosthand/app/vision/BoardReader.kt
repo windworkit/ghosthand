@@ -70,6 +70,14 @@ class BoardReader {
     fun readGrid(bmp: Bitmap, geo: GameGeometry.Geo): Array<BooleanArray> =
         readBoardCells(bmp, geo).first
 
+    fun readGridWithConfidence(
+        bmp: Bitmap,
+        geo: GameGeometry.Geo
+    ): Pair<Array<BooleanArray>, Float> {
+        val result = readBoardCells(bmp, geo)
+        return result.first to result.third
+    }
+
     /**
      * Classify board occupancy using the board-cell corner/gutter color as a
      * background reference. The center of a crowded board can be dominated by
