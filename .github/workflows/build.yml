@@ -1,4 +1,4 @@
-name: Build APK
+name: Test and Build APK
 on:
   push:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
+      - name: Run unit tests and build debug APK
         env:
           GIT_SHA: ${{ github.sha }}
         run: gradle testDebugUnitTest assembleDebug --no-daemon -PgitSha=$GIT_SHA -Dorg.gradle.jvmargs=-Xmx3g
