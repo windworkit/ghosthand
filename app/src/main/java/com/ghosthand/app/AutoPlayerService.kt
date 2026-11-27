@@ -281,6 +281,8 @@ class AutoPlayerService : AccessibilityService() {
                 delay(220)
                 return completed
             }
+            override fun isFrameFresh(): Boolean = AgentBus.isFrameFresh()
+
             override fun isFrameAligned(frameWidth: Int, frameHeight: Int): Boolean {
                 if (frameWidth <= 0 || frameHeight <= 0) return false
                 val (displayWidth, displayHeight) = screen()

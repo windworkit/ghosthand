@@ -55,7 +55,6 @@ class AgentCaptureService : Service() {
                 )
                 if (!started) throw IllegalStateException("MediaProjection could not be created")
                 caster = newCaster
-                AgentBus.casterActive = true
             } catch (e: Exception) {
                 android.util.Log.e("GhostHandCapture", "Screen capture startup failed", e)
                 AgentBus.clear()

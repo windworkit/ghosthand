@@ -94,6 +94,11 @@ class Agent(
             // A captured app window or a stale inner/cover-panel capture can
             // be letterboxed inside the projection surface. Never attempt a
             // gesture unless the frame aspect matches the active touch display.
+            if (!motor.isFrameFresh()) {
+                onStatus("Waiting for a fresh screen frame…")
+                delay(250)
+                continue
+            }
             if (!motor.isFrameAligned(bmp.width, bmp.height)) {
                 stopOnFailedPlacement = true
                 onStatus("Capture/display mismatch — stopped safely")
@@ -316,7 +321,7 @@ class Agent(
         for (i in 0 until 8) {
             delay(450)
             val bmp = frame() ?: continue
-            if (!motor.isFrameAligned(bmp.width, bmp.height)) return null
+            if (!motor.isFrameFresh() || !motor.isFrameAligned(bmp.width, bmp.height)) return null
             val grid = reader.readGrid(bmp, geo)
             val prev = previous
             if (prev != null && gridsEqual(prev, grid)) return grid
