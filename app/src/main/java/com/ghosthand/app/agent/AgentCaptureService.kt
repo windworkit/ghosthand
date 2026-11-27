@@ -9,6 +9,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.ghosthand.app.R
+import com.ghosthand.app.AutoPlayerService
 import com.ghosthand.app.vision.ScreenCaster
 
 class AgentCaptureService : Service() {
@@ -40,16 +41,25 @@ class AgentCaptureService : Service() {
         else startForeground(1, notif)
 
         if (code != 0 && data != null) {
-            AgentBus.frame.value = null
+            AgentBus.clear()
             try {
                 val newCaster = ScreenCaster(this)
-                newCaster.start(code, data) { bmp -> AgentBus.push(bmp) }
+                val started = newCaster.start(
+                    code,
+                    data,
+                    onStopped = {
+                        AgentBus.clear()
+                        AutoPlayerService.instance?.stop()
+                    },
+                    onFrame = { bmp -> AgentBus.push(bmp) }
+                )
+                if (!started) throw IllegalStateException("MediaProjection could not be created")
                 caster = newCaster
                 AgentBus.casterActive = true
             } catch (e: Exception) {
                 android.util.Log.e("GhostHandCapture", "Screen capture startup failed", e)
-                AgentBus.casterActive = false
-                AgentBus.frame.value = null
+                AgentBus.clear()
+                AutoPlayerService.instance?.stop()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -61,8 +71,7 @@ class AgentCaptureService : Service() {
     }
 
     override fun onDestroy() {
-        AgentBus.casterActive = false
-        AgentBus.frame.value = null
+        AgentBus.clear()
         caster?.stop(); caster = null
         super.onDestroy()
     }

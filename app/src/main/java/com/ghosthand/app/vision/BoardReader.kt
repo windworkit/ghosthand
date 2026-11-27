@@ -59,11 +59,91 @@ class BoardReader {
     }
 
         fun read(bmp: Bitmap, geo: GameGeometry.Geo): Reading? {
-        val grid = readGrid(bmp, geo)
+        val (grid, boardCells) = readBoardCells(bmp, geo)
         val tray = readTray(bmp, geo) ?: return null
-        val boardCells = Array(geo.cols) { x ->
+        return Reading(grid, tray, geo, bmp.width, bmp.height, boardCells)
+    }
+
+    fun readGrid(bmp: Bitmap, geo: GameGeometry.Geo): Array<BooleanArray> =
+        readBoardCells(bmp, geo).first
+
+    /**
+     * Classify board occupancy using both luminance and RGB distance from the
+     * dominant empty-cell surface. This catches dark colored blocks that a
+     * brightness-only threshold can mistake for empty cells.
+     *
+     * The detected object type remains UNCLASSIFIED_OCCUPIED until a validated
+     * icon classifier can distinguish ordinary blocks from level objectives.
+     */
+    private fun readBoardCells(
+        bmp: Bitmap,
+        geo: GameGeometry.Geo
+    ): Pair<Array<BooleanArray>, Array<Array<BoardCellObservation>>> {
+        val reds = Array(geo.cols) { IntArray(geo.rows) }
+        val greens = Array(geo.cols) { IntArray(geo.rows) }
+        val blues = Array(geo.cols) { IntArray(geo.rows) }
+        val levels = Array(geo.cols) { IntArray(geo.rows) }
+
+        fun median(values: IntArray): Int {
+            values.sort()
+            return values[values.size / 2]
+        }
+
+        val buckets = HashMap<Int, IntArray>()
+        for (x in 0 until geo.cols) for (y in 0 until geo.rows) {
+            val rSamples = IntArray(9)
+            val gSamples = IntArray(9)
+            val bSamples = IntArray(9)
+            var index = 0
+            // Sample the tile face, away from its seam and outer border.
+            for (fy in 0..2) for (fx in 0..2) {
+                val px = (geo.ox + (x + 0.34f + fx * 0.16f) * geo.cell)
+                    .toInt().coerceIn(0, bmp.width - 1)
+                val py = (geo.oy + (y + 0.34f + fy * 0.16f) * geo.cell)
+                    .toInt().coerceIn(0, bmp.height - 1)
+                val color = bmp.getPixel(px, py)
+                rSamples[index] = Color.red(color)
+                gSamples[index] = Color.green(color)
+                bSamples[index] = Color.blue(color)
+                index++
+            }
+            val r = median(rSamples)
+            val g = median(gSamples)
+            val b = median(bSamples)
+            reds[x][y] = r
+            greens[x][y] = g
+            blues[x][y] = b
+            levels[x][y] = (r + g + b) / 3
+
+            val bucket = ((r shr 4) shl 8) or ((g shr 4) shl 4) or (b shr 4)
+            val totals = buckets.getOrPut(bucket) { IntArray(4) }
+            totals[0] += r
+            totals[1] += g
+            totals[2] += b
+            totals[3]++
+        }
+
+        // Empty cells share the board's largest repeated background color.
+        // Quantization absorbs subtle compression and scaling differences.
+        val background = buckets.maxByOrNull { it.value[3] }?.value
+        val bgR = background?.let { it[0] / it[3] } ?: 30
+        val bgG = background?.let { it[1] / it[3] } ?: 35
+        val bgB = background?.let { it[2] / it[3] } ?: 55
+        val darkestCell = levels.minOf { column -> column.minOrNull() ?: 255 }
+        val brightnessThreshold = maxOf(76, darkestCell + 28)
+
+        val grid = Array(geo.cols) { BooleanArray(geo.rows) }
+        val observations = Array(geo.cols) { x ->
             Array(geo.rows) { y ->
-                val occupied = grid[x][y]
+                val r = reds[x][y]
+                val g = greens[x][y]
+                val b = blues[x][y]
+                val luminance = levels[x][y]
+                val distance = kotlin.math.abs(r - bgR) +
+                    kotlin.math.abs(g - bgG) +
+                    kotlin.math.abs(b - bgB)
+                val occupied = luminance > brightnessThreshold || distance >= 48
+                grid[x][y] = occupied
                 BoardCellObservation(
                     column = x,
                     row = y,
@@ -72,38 +152,13 @@ class BoardReader {
                         BoardObjectType.UNCLASSIFIED_OCCUPIED
                     } else {
                         BoardObjectType.EMPTY
-                    }
+                    },
+                    luminance = luminance,
+                    backgroundDistance = distance
                 )
             }
         }
-        return Reading(grid, tray, geo, bmp.width, bmp.height, boardCells)
-    }
-
-    fun readGrid(bmp: Bitmap, geo: GameGeometry.Geo): Array<BooleanArray> {
-        val cellLevels = Array(geo.cols) { FloatArray(geo.rows) }
-
-        for (x in 0 until geo.cols) for (y in 0 until geo.rows) {
-            // Sample a small 3x3 patch in the tile face, not its border. Empty
-            // Woodoku cells are dark navy; colored blocks and flower tiles are
-            // substantially brighter. Saturation alone cannot distinguish them.
-            val samples = IntArray(9)
-            var index = 0
-            for (fy in 0..2) for (fx in 0..2) {
-                val px = (geo.ox + (x + 0.34f + fx * 0.16f) * geo.cell)
-                    .toInt().coerceIn(0, bmp.width - 1)
-                val py = (geo.oy + (y + 0.34f + fy * 0.16f) * geo.cell)
-                    .toInt().coerceIn(0, bmp.height - 1)
-                samples[index++] = luminance(bmp.getPixel(px, py))
-            }
-            samples.sort()
-            cellLevels[x][y] = samples[samples.size / 2].toFloat()
-        }
-
-        val darkestCell = cellLevels.minOf { col -> col.minOrNull() ?: 255f }
-        val occupiedThreshold = maxOf(76f, darkestCell + 28f)
-                return Array(geo.cols) { x ->
-            BooleanArray(geo.rows) { y -> cellLevels[x][y] > occupiedThreshold }
-        }
+        return grid to observations
     }
 
     /**

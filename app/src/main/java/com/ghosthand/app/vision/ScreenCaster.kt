@@ -36,11 +36,16 @@ class ScreenCaster(private val ctx: Context) {
     private var lastFrameAt = 0L
 
     @Synchronized
-    fun start(resultCode: Int, data: Intent, onFrame: (Bitmap) -> Unit) {
+    fun start(
+        resultCode: Int,
+        data: Intent,
+        onStopped: () -> Unit = {},
+        onFrame: (Bitmap) -> Unit
+    ): Boolean {
         stop()
 
         val manager = ctx.getSystemService(MediaProjectionManager::class.java)
-        val proj = manager.getMediaProjection(resultCode, data) ?: return
+        val proj = manager.getMediaProjection(resultCode, data) ?: return false
         projection = proj
 
         // Resolve metrics from the active default display, not this service's
@@ -97,7 +102,7 @@ class ScreenCaster(private val ctx: Context) {
             val callback = object : MediaProjection.Callback() {
                 override fun onStop() {
                     Log.i(TAG, "Screen capture was stopped by Android or the user")
-                    stopIfCurrent(proj)
+                    if (stopIfCurrent(proj)) onStopped()
                 }
             }
             projectionCallback = callback
@@ -170,6 +175,7 @@ class ScreenCaster(private val ctx: Context) {
                 handler
             )
             Log.i(TAG, "Screen capture started at ${width}x${height}, throttled")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Unable to start screen capture", e)
             stop()
@@ -177,12 +183,15 @@ class ScreenCaster(private val ctx: Context) {
         }
     }
 
-    private fun stopIfCurrent(expected: MediaProjection) {
+    private fun stopIfCurrent(expected: MediaProjection): Boolean =
         synchronized(this) {
-            if (projection !== expected) return
-            stopLocked()
+            if (projection !== expected) {
+                false
+            } else {
+                stopLocked()
+                true
+            }
         }
-    }
 
     @Synchronized
     fun stop() {
