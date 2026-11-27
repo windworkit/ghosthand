@@ -34,6 +34,8 @@ class ScreenCaster(private val ctx: Context) {
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
     private var lastFrameAt = 0L
+    private var captureWidth = 0
+    private var captureHeight = 0
 
     @Synchronized
     fun start(
@@ -81,6 +83,8 @@ class ScreenCaster(private val ctx: Context) {
         val height = bounds?.height()?.takeIf { it > 0 }
             ?: realSize.y.takeIf { it > 0 }
             ?: metrics.heightPixels
+        captureWidth = width
+        captureHeight = height
         val densityDpi = windowContext.resources.configuration.densityDpi
             .takeIf { it > 0 } ?: metrics.densityDpi
         // Keep the VirtualDisplay at the active panel's exact dimensions.
@@ -103,6 +107,22 @@ class ScreenCaster(private val ctx: Context) {
                 override fun onStop() {
                     Log.i(TAG, "Screen capture was stopped by Android or the user")
                     if (stopIfCurrent(proj)) onStopped()
+                }
+
+                override fun onCapturedContentResize(width: Int, height: Int) {
+                    if (width <= 0 || height <= 0) return
+                    val changed = synchronized(this@ScreenCaster) {
+                        projection === proj &&
+                            (width != captureWidth || height != captureHeight)
+                    }
+                    if (changed && stopIfCurrent(proj)) {
+                        Log.w(
+                            TAG,
+                            "Captured display changed from ${captureWidth}x${captureHeight} " +
+                                "to ${width}x${height}; stopping Smart Play to avoid stale coordinates"
+                        )
+                        onStopped()
+                    }
                 }
             }
             projectionCallback = callback
@@ -212,6 +232,8 @@ class ScreenCaster(private val ctx: Context) {
         captureThread = null
         captureHandler = null
         lastFrameAt = 0L
+        captureWidth = 0
+        captureHeight = 0
 
         runCatching { oldReader?.setOnImageAvailableListener(null, null) }
         runCatching { oldDisplay?.release() }
