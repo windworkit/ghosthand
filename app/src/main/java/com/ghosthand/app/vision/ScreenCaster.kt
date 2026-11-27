@@ -111,14 +111,19 @@ class ScreenCaster(private val ctx: Context) {
 
                 override fun onCapturedContentResize(width: Int, height: Int) {
                     if (width <= 0 || height <= 0) return
-                    val changed = synchronized(this@ScreenCaster) {
-                        projection === proj &&
+                    val previousSize = synchronized(this@ScreenCaster) {
+                        if (projection === proj &&
                             (width != captureWidth || height != captureHeight)
+                        ) {
+                            captureWidth to captureHeight
+                        } else {
+                            null
+                        }
                     }
-                    if (changed && stopIfCurrent(proj)) {
+                    if (previousSize != null && stopIfCurrent(proj)) {
                         Log.w(
                             TAG,
-                            "Captured display changed from ${captureWidth}x${captureHeight} " +
+                            "Captured display changed from ${previousSize.first}x${previousSize.second} " +
                                 "to ${width}x${height}; stopping Smart Play to avoid stale coordinates"
                         )
                         onStopped()
