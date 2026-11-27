@@ -298,21 +298,24 @@ class Agent(
         cols: Int,
         rows: Int
     ): Pair<Int, Int>? {
-        var best: Pair<Int, Int>? = null
-        var bestDist = Int.MAX_VALUE
+        var match: Pair<Int, Int>? = null
+        var matchCount = 0
         for (dx in -5..5) for (dy in -5..5) {
             val x = intendedX + dx
             val y = intendedY + dy
             if (x < 0 || y < 0 || x + piece.w > cols || y + piece.h > rows) continue
             if (!solver.canFit(before, piece, x, y)) continue
             if (!gridsEqual(solver.place(before, piece, x, y), after)) continue
-            val dist = abs(dx) + abs(dy)
-            if (dist < bestDist) {
-                bestDist = dist
-                best = dx to dy
+
+            matchCount++
+            if (matchCount > 1) {
+                // More than one offset explains the same screenshot. Do not
+                // learn a calibration from an ambiguous board transition.
+                return null
             }
+            match = dx to dy
         }
-        return best
+        return match
     }
 
     /** Re-read the board until two consecutive reads agree (animations finished). */
