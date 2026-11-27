@@ -17,7 +17,8 @@ object GameGeometry {
     // The line detector can mistake internal grid seams for the board edges
     // and return a plausible-looking but incorrect 10x6 (or similar) grid.
     fun calibrate(bmp: Bitmap): Geo? =
-        calibrateFramedSquare(bmp) ?: calibrateGridLines(bmp)
+        (calibrateFramedSquare(bmp) ?: calibrateGridLines(bmp))
+            ?.takeIf { it.cols == 8 && it.rows == 8 }
 
     /**
      * Original line-based calibration. Kept as the first choice for games that

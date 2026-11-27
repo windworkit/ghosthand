@@ -137,14 +137,20 @@ class Agent(
         if (geo == null) {
             onStatus("Grid: scanning")
             geo = GameGeometry.calibrate(bmp)
-            if (geo == null) {
-                onStatus("Grid: no lines")
+            if (geo == null || !isGeometryUsable(geo, bmp)) {
+                geoCache = null
+                onStatus("Grid: no valid 8x8 board")
                 return false
             }
             geoCache = geo
             verifyFailures = 0
             onStatus("Grid: ${geo.cols}x${geo.rows} found")
             delay(300)
+        } else if (!isGeometryUsable(geo, bmp)) {
+            geoCache = null
+            verifyFailures = 0
+            onStatus("Grid: outside capture — recalibrating")
+            return false
         } else if (verify(geo, bmp)) {
             verifyFailures = 0
         } else if (++verifyFailures >= 2) {
@@ -337,6 +343,19 @@ class Agent(
         return a.indices.all { x ->
             a[x].size == b[x].size && a[x].indices.all { y -> a[x][y] == b[x][y] }
         }
+    }
+
+    /**
+     * Never sample a clamped/partial board. Clamping would cause several
+     * logical cells to read pixels from the same screen edge and could make a
+     * false empty-cell map look internally consistent.
+     */
+    private fun isGeometryUsable(geo: GameGeometry.Geo, bmp: Bitmap): Boolean {
+        if (geo.cols != 8 || geo.rows != 8 || geo.cell < 6) return false
+        if (geo.ox < 0 || geo.oy < 0) return false
+        val right = geo.ox + geo.cols * geo.cell
+        val bottom = geo.oy + geo.rows * geo.cell
+        return right <= bmp.width && bottom <= bmp.height
     }
 
     /**
