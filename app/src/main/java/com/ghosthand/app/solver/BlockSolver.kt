@@ -1,6 +1,7 @@
 package com.ghosthand.app.solver
 
 import com.ghosthand.app.vision.BoardReader
+import com.ghosthand.app.vision.ShapeTopology
 
 class BlockSolver(private val cols: Int, private val rows: Int) {
 
@@ -12,8 +13,18 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
     data class Move(val pieceIdx: Int, val piece: BoardReader.Piece, val x: Int, val y: Int)
 
     fun solve(grid: Array<BooleanArray>, pieces: List<BoardReader.Piece>): List<Move>? {
+        if (grid.size != cols || grid.any { it.size != rows }) {
+            lastDiagnostic = "invalid board dimensions; expected ${cols}x${rows}"
+            return null
+        }
         if (pieces.isEmpty()) {
             lastDiagnostic = "tray returned 0 pieces"
+            return null
+        }
+        val invalidPiece = pieces.indexOfFirst { !isValidPiece(it) }
+        if (invalidPiece >= 0) {
+            val piece = pieces[invalidPiece]
+            lastDiagnostic = "piece ${invalidPiece + 1} is malformed: ${piece.w}x${piece.h}, ${piece.cells.size} cells"
             return null
         }
         val emptyCells = grid.sumOf { col -> col.count { !it } }
@@ -65,6 +76,11 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
             }
         }
         return fallback?.let { listOf(it) }
+    }
+
+    private fun isValidPiece(piece: BoardReader.Piece): Boolean {
+        return ShapeTopology.isValidShape(piece.cells, piece.w, piece.h) &&
+            piece.w <= cols && piece.h <= rows
     }
 
     private fun countPlacements(g: Array<BooleanArray>, p: BoardReader.Piece): Int {

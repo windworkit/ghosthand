@@ -327,8 +327,15 @@ class BoardReader {
                 if (density >= 0.26f) detectedCells.add(cx to cy)
             }
 
-            val connected = largestConnectedComponent(detectedCells)
-            // Ignore an empty/noisy slot and continue scanning the other two.
+            val groups = ShapeTopology.components(detectedCells)
+            // A physical puzzle piece is edge-connected. Diagonal-only
+            // contacts can be two different blocks/noise and must not be
+            // silently merged into a single guessed piece.
+            if (groups.size != 1) {
+                lastTrayDiagnostic = "bands: ambiguous slot ${slot} (${groups.size} disconnected groups)"
+                return null
+            }
+            val connected = groups.single()
             if (connected.isEmpty()) continue
 
             val minX = connected.minOf { it.first }
@@ -433,41 +440,6 @@ class BoardReader {
             total++
         }
         return ink.toFloat() / total.coerceAtLeast(1)
-    }
-
-    private fun largestConnectedComponent(
-        cells: Set<Pair<Int, Int>>
-    ): Set<Pair<Int, Int>> {
-        if (cells.isEmpty()) return emptySet()
-        val remaining = cells.toMutableSet()
-        var largest = emptySet<Pair<Int, Int>>()
-
-        while (remaining.isNotEmpty()) {
-            val stack = ArrayDeque<Pair<Int, Int>>()
-            val component = mutableSetOf<Pair<Int, Int>>()
-            stack.addLast(remaining.first())
-            remaining.remove(stack.last())
-
-            while (stack.isNotEmpty()) {
-                val cell = stack.removeLast()
-                component.add(cell)
-                // Woodoku pieces can touch diagonally (staircases and
-                // offset pairs). Treat all 8 surrounding cells as connected.
-                val neighbours = buildList {
-                    for (dy in -1..1) for (dx in -1..1) {
-                        if (dx != 0 || dy != 0) {
-                            add((cell.first + dx) to (cell.second + dy))
-                        }
-                    }
-                }
-                for (neighbour in neighbours) {
-                    if (remaining.remove(neighbour)) stack.addLast(neighbour)
-                }
-            }
-
-            if (component.size > largest.size) largest = component
-        }
-        return largest
     }
 
     /** Original connected-component reader retained as a fallback. */
@@ -594,6 +566,10 @@ class BoardReader {
                 DetectedCell(cx, cy, blob)
             }
             val rawCells = detected.map { it.x to it.y }.toSet()
+            // Never drop stray detected cells by keeping only a largest
+            // component. A partial shape can make the solver place a block
+            // that does not match the tray piece.
+            if (!ShapeTopology.isConnected(rawCells)) continue
 
             val minX = rawCells.minOf { it.first }
             val maxX = rawCells.maxOf { it.first }

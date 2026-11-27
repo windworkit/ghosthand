@@ -85,22 +85,29 @@ class ObjectiveReader {
         ObjectiveType.SCORE to setOf("score", "points")
     )
 
-    fun read(words: List<OcrWord>, width: Int, height: Int): ObjectiveSnapshot {
-        val counters = words.mapNotNull { word ->
-            val normalized = word.text.lowercase().trim().trim(',', '.', ':', ';', '!')
+    fun read(
+        words: List<OcrWord>,
+        lines: List<OcrWord>,
+        width: Int,
+        height: Int
+    ): ObjectiveSnapshot {
+        // Prefer complete OCR lines for matching names and x/y counters, but
+        // retain token-level numbers when ML Kit splits the line into elements.
+        val counters = lines.mapNotNull { line ->
+            val normalized = line.text.lowercase()
             val type = aliases.entries.firstOrNull { (_, values) ->
-                normalized in values
+                values.any { alias -> Regex("""\b${Regex.escape(alias)}\b""").containsMatchIn(normalized) }
             }?.key ?: return@mapNotNull null
-            val ratio = RATIO.find(word.text)?.let { match ->
+            val ratio = RATIO.find(line.text)?.let { match ->
                 match.groupValues[1].toIntOrNull() to match.groupValues[2].toIntOrNull()
             }
             ObjectiveCounterObservation(
                 type = type,
                 current = ratio?.first,
                 target = ratio?.second,
-                screenX = word.x,
-                screenY = word.y,
-                sourceText = word.text
+                screenX = line.x,
+                screenY = line.y,
+                sourceText = line.text
             )
         }.distinctBy { it.type to (it.screenY * 100).roundToInt() }
 

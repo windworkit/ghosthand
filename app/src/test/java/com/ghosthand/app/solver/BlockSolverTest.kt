@@ -44,6 +44,31 @@ class BlockSolverTest {
     }
 
     @Test
+    fun rejectsDisconnectedPieceInsteadOfPlanningWithIt() {
+        val grid = Array(8) { BooleanArray(8) }
+        val disconnected = BoardReader.Piece(
+            "diagonal-only",
+            listOf(0 to 0, 1 to 1),
+            2,
+            2
+        )
+        val solver = BlockSolver(8, 8)
+
+        assertTrue(solver.solve(grid, listOf(disconnected)) == null)
+        assertTrue(solver.lastDiagnostic.contains("malformed"))
+    }
+
+    @Test
+    fun rejectsMalformedBoardDimensions() {
+        val grid = Array(7) { BooleanArray(8) }
+        val single = BoardReader.Piece("single", listOf(0 to 0), 1, 1)
+        val solver = BlockSolver(8, 8)
+
+        assertTrue(solver.solve(grid, listOf(single)) == null)
+        assertTrue(solver.lastDiagnostic.contains("dimensions"))
+    }
+
+    @Test
     fun rejectsNegativeAndOutOfBoardPlacements() {
         val grid = Array(8) { BooleanArray(8) }
         val line = BoardReader.Piece(

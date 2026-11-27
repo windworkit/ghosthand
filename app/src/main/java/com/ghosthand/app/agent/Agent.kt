@@ -162,7 +162,9 @@ class Agent(
             return false
         }
         val traySummary = reading.pieces.joinToString(", ") { "${it.w}x${it.h}/${it.cells.size}" }
-        val objectiveSnapshot = objectiveReader.read(classifier.lastWords, bmp.width, bmp.height)
+        val objectiveSnapshot = objectiveReader.read(
+            classifier.lastWords, classifier.lastLines, bmp.width, bmp.height
+        )
         val objectiveSummary = objectiveSnapshot.counters.joinToString(", ") {
             "${it.type.name.lowercase()} ${it.current ?: "?"}/${it.target ?: "?"}"
         }.ifEmpty {

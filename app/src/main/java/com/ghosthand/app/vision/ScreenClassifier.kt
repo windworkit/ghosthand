@@ -13,6 +13,8 @@ class ScreenClassifier(private val ocr: Ocr) {
     // inference pass over every captured frame.
     var lastWords: List<OcrWord> = emptyList()
         private set
+    var lastLines: List<OcrWord> = emptyList()
+        private set
 
     private val adWords = listOf(
         "skip", "install", "download", "play now", "get the app", "shop now",
@@ -24,8 +26,10 @@ class ScreenClassifier(private val ocr: Ocr) {
     )
 
     suspend fun classify(bmp: android.graphics.Bitmap): ScreenState {
-        val words = ocr.words(bmp)
+        val recognized = ocr.recognize(bmp)
+        val words = recognized.words
         lastWords = words
+        lastLines = recognized.lines
         val stats = PixelMath.stats(bmp)
 
         if (stats.distinctColors < 12 && stats.edgeDensity < 0.03f) {
