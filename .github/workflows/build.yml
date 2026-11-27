@@ -15,10 +15,30 @@ jobs:
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.9'
+      - name: Restore stable Android debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: ghosthand-debug-signing-key-v1
+      - name: Create Android debug signing key when cache is empty
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v -noprompt \
+              -keystore ~/.android/debug.keystore \
+              -storetype JKS \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
       - name: Run unit tests and build debug APK
         env:
           GIT_SHA: ${{ github.sha }}
-        run: gradle testDebugUnitTest assembleDebug --no-daemon -PgitSha=$GIT_SHA -Dorg.gradle.jvmargs=-Xmx3g
+        run: gradle testDebugUnitTest assembleDebug --no-daemon -PgitSha=$GIT_SHA -PbuildNumber=${{ github.run_number }} -Dorg.gradle.jvmargs=-Xmx3g
       - uses: actions/upload-artifact@v4
         with:
           name: GhostHand-APK
