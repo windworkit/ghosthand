@@ -189,7 +189,7 @@ class ScreenCaster(private val ctx: Context) {
                 }
             }, handler)
 
-            display = proj.createVirtualDisplay(
+            val virtualDisplay = proj.createVirtualDisplay(
                 "ghosthand",
                 width,
                 height,
@@ -198,7 +198,8 @@ class ScreenCaster(private val ctx: Context) {
                 imageReader.surface,
                 null,
                 handler
-            )
+            ) ?: throw IllegalStateException("Android did not create the screen-capture display")
+            display = virtualDisplay
             Log.i(TAG, "Screen capture started at ${width}x${height}, throttled")
             return true
         } catch (e: Exception) {
