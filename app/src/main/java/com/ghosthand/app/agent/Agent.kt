@@ -42,8 +42,22 @@ class Agent(
      * actually land (see [findLanding]) and remembered per piece size.
      */
     private data class Adj(val x: Float, val y: Float)
+    private data class PlacementKey(val shape: String, val anchorX: Int, val anchorY: Int)
 
-    private val learned = HashMap<Pair<Int, Int>, Adj>()
+    // Calibration belongs to an exact shape and pickup anchor. Width/height
+    // alone are not enough: L, T and zig-zag pieces can share a bounding box.
+    private val learned = HashMap<PlacementKey, Adj>()
+
+    private fun placementKey(piece: BoardReader.Piece): PlacementKey {
+        val canonicalCells = piece.cells
+            .sortedWith(compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first })
+            .joinToString(";") { "${it.first},${it.second}" }
+        return PlacementKey(
+            "${piece.w}x${piece.h}:$canonicalCells",
+            piece.anchorCellX,
+            piece.anchorCellY
+        )
+    }
 
     suspend fun loop(frame: () -> Bitmap?) {
         onStatus("Waiting for screen…")
@@ -174,15 +188,23 @@ class Agent(
         // One move per fresh board read; re-solve after each placement.
         val m = moves.first()
         val piece = reading.pieces[m.pieceIdx]
-        val key = piece.w to piece.h
+        val key = placementKey(piece)
         val grabX = if (piece.grabX.isFinite()) piece.grabX else traySlot(reading, m.pieceIdx).first
         val grabY = if (piece.grabY.isFinite()) piece.grabY else traySlot(reading, m.pieceIdx).second
 
-        // Intended location: center of the piece's bounding box on the board.
+        // Aim the tile actually grabbed at its destination cell. The piece's
+        // bounding-box center is not the pickup point for asymmetric shapes.
         val cell = geo.cell.toFloat()
-        val centerX = geo.ox + (m.x + piece.w / 2f) * cell
-        val centerY = geo.oy + (m.y + piece.h / 2f) * cell
-        val base = adjFor(piece)
+        val anchorX = piece.anchorCellX.coerceIn(0, piece.w - 1)
+        val anchorY = piece.anchorCellY.coerceIn(0, piece.h - 1)
+        if (piece.cells.none { it.first == anchorX && it.second == anchorY }) {
+            stopOnFailedPlacement = true
+            onStatus("Invalid pickup anchor — paused")
+            return true
+        }
+        val targetAnchorX = geo.ox + (m.x + anchorX + 0.5f) * cell
+        val targetAnchorY = geo.oy + (m.y + anchorY + 0.5f) * cell
+        val base = adjFor(key)
 
         // attempt 0 uses the learned offset. If the game rejects the drop (grid
         // unchanged) the same move is retried with the aim nudged, so a wrong
@@ -191,15 +213,27 @@ class Agent(
         for (attempt in 0 until totalAttempts) {
             val probe = if (attempt == 0) 0f to 0f else PROBES[attempt - 1]
             val adj = Adj(base.x + probe.first, base.y + probe.second)
-            val dropX = (centerX + adj.x * cell).coerceIn(2f, reading.bmpW - 3f)
-            val dropY = (centerY + adj.y * cell).coerceIn(2f, reading.bmpH - 3f)
+            val dropX = targetAnchorX + adj.x * cell
+            val dropY = targetAnchorY + adj.y * cell
+            val startNx = grabX / reading.bmpW
+            val startNy = grabY / reading.bmpH
+            val endNx = dropX / reading.bmpW
+            val endNy = dropY / reading.bmpH
+
+            // Never clamp an invalid destination to an image edge.
+            if (listOf(startNx, startNy, endNx, endNy).any { !it.isFinite() || it !in 0.01f..0.99f }) {
+                stopOnFailedPlacement = true
+                onStatus("Drag coordinates outside capture — paused")
+                return true
+            }
 
             onStatus("Plan p${m.pieceIdx + 1} -> c${m.x + 1} r${m.y + 1} #${attempt + 1}; goals=$objectiveSummary")
-            motor.drag(
-                grabX / reading.bmpW, grabY / reading.bmpH,
-                dropX / reading.bmpW, dropY / reading.bmpH,
-                ms = 1000
-            )
+            val dispatched = motor.drag(startNx, startNy, endNx, endNy, ms = 1000)
+            if (!dispatched) {
+                stopOnFailedPlacement = true
+                onStatus("Android cancelled/rejected drag — paused")
+                return true
+            }
             motor.idle(700)
 
             val after = settledGrid(frame, geo)
@@ -212,7 +246,9 @@ class Agent(
 
             val landing = findLanding(solver, reading.grid, after, piece, m.x, m.y, geo.cols, geo.rows)
             if (landing == null) {
-                onStatus("Placed (landing unclear)")
+                stopOnFailedPlacement = true
+                onStatus("Board changed; landing uncertain — paused")
+                return true
             } else if (landing.first == 0 && landing.second == 0) {
                 learned[key] = adj
                 onStatus("Placed on target")
@@ -230,32 +266,9 @@ class Agent(
         return true
     }
 
-    /** Learned aim for this piece size, or a prediction from other sizes, or the starting guess. */
-    private fun adjFor(piece: BoardReader.Piece): Adj {
-        learned[piece.w to piece.h]?.let { return it }
-        if (learned.isEmpty()) return Adj(PRIOR_X, PRIOR_Y)
-        val obs = learned.entries.toList()
-        return Adj(
-            predictAxis(obs.map { it.key.first to it.value.x }, piece.w),
-            predictAxis(obs.map { it.key.second to it.value.y }, piece.h)
-        )
-    }
-
-    /**
-     * Two simple models for how the game offsets a piece from the finger on one
-     * axis: constant from the piece center, or constant from its far edge (so
-     * the offset grows with piece size). Use whichever fits what was observed.
-     */
-    private fun predictAxis(obs: List<Pair<Int, Float>>, dim: Int): Float {
-        val center = obs.map { it.second }
-        val edge = obs.map { it.second - it.first / 2f }
-        fun spread(v: List<Float>): Float = (v.maxOrNull() ?: 0f) - (v.minOrNull() ?: 0f)
-        return if (obs.size >= 2 && spread(edge) + 0.15f < spread(center)) {
-            edge.average().toFloat() + dim / 2f
-        } else {
-            center.average().toFloat()
-        }
-    }
+    /** Use calibration only for this exact shape and pickup anchor. */
+    private fun adjFor(key: PlacementKey): Adj =
+        learned[key] ?: Adj(PRIOR_X, PRIOR_Y)
 
     /**
      * Find the (dx, dy) shift, relative to the intended top-left cell, at which
@@ -292,17 +305,17 @@ class Agent(
     /** Re-read the board until two consecutive reads agree (animations finished). */
     private suspend fun settledGrid(frame: () -> Bitmap?, geo: GameGeometry.Geo): Array<BooleanArray>? {
         var previous: Array<BooleanArray>? = null
-        var latest: Array<BooleanArray>? = null
         for (i in 0 until 8) {
             delay(450)
             val bmp = frame() ?: continue
+            if (!motor.isFrameAligned(bmp.width, bmp.height)) return null
             val grid = reader.readGrid(bmp, geo)
             val prev = previous
             if (prev != null && gridsEqual(prev, grid)) return grid
             previous = grid
-            latest = grid
         }
-        return latest
+        // An unstable board is not a trustworthy placement result.
+        return null
     }
 
     private fun fmt(v: Int): String = if (v > 0) "+$v" else v.toString()
