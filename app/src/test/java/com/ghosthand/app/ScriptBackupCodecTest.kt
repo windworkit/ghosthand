@@ -22,7 +22,7 @@ class ScriptBackupCodecTest {
                 Step.Tap(0.5f, 0.6f),
                 Step.LoopEnd
             ),
-            repeats = 2,
+            repeats = 3,
             jitterMs = 120,
             jitterDp = 3.5f,
             keepAwake = true

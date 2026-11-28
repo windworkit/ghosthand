@@ -102,7 +102,7 @@ object ScriptBackupCodec {
         if (!validId.matches(script.id)) return false
         if (script.name.length > 500) return false
         if (script.steps.size > MAX_STEPS_PER_SCRIPT) return false
-        if (script.repeats !in setOf(0, 1, 2, 3, 5, 10)) return false
+        if (script.repeats !in setOf(0, 1, 3, 5, 10)) return false
         if (script.jitterMs !in 0L..600L) return false
         if (!script.jitterDp.isFinite() || script.jitterDp !in 0f..20f) return false
 
