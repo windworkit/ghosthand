@@ -19,7 +19,7 @@ This document tracks what the objective-aware core does and, just as importantly
 - Reports the support/confidence for that background estimate and refuses to move when it is weak.
 - Preserves occupied-but-unclassified cells instead of pretending to know their object type.
 - Compares quantized per-cell RGB signatures and detected tray-shape/pickup signatures as well as occupancy after a drop. Special-object visual changes or tray-piece disappearance are not mistaken for rejected gestures and blindly retried; ambiguous transitions pause safely.
-- Requires an 8x8 board fully inside the captured frame.
+- Supports 8x8 and 9x9 boards fully inside the captured frame; framed-square calibration compares candidate cell seams instead of assuming one fixed size.
 - Expands board-rail search ranges for both the Fold cover and inner display.
 - Tracks capture-frame freshness.
 - Stops the agent and capture service when screen projection ends or the captured display changes size.
@@ -40,6 +40,7 @@ This document tracks what the objective-aware core does and, just as importantly
 
 ### Objective move-impact foundation
 - Added a pure evaluator for hypothetical placements when cells have already been confidently labeled.
+- Geometry calibration now supports both 8x8 and 9x9 boards and scores internal seam alignment before choosing a size.
 - Scores explicitly recognized heart/marked-tile collection on completed rows and columns.
 - Models apples surviving a line clear, falling through newly empty cells, and collecting only when they reach the bottom.
 - Reports balloon-block contacts without guessing how many balloons were released.
