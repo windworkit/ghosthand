@@ -16,6 +16,9 @@ object AgentBus {
         casterActive = true
     }
 
+    /** elapsedRealtime() when the current frame arrived. */
+    val lastFrameAtMs: Long get() = lastFrameAtElapsedMs
+
     fun isFrameFresh(maxAgeMs: Long = 1_600L): Boolean {
         val capturedAt = lastFrameAtElapsedMs
         return casterActive &&

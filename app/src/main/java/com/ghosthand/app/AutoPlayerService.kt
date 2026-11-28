@@ -229,6 +229,49 @@ class AutoPlayerService : AccessibilityService() {
      * continueStroke): hold at the start, travel, hold at the end. The finger
      * never lifts between segments, so the game sees a single drag.
      */
+    // An in-progress touch kept down between strokes (Smart Play aim fixing).
+    private var heldStroke: GestureDescription.StrokeDescription? = null
+    private var heldX = 0f
+    private var heldY = 0f
+
+    private suspend fun beginHeldDrag(x1: Float, y1: Float, x2: Float, y2: Float, moveMs: Long): Boolean {
+        heldStroke = null
+        val hold1 = Path().apply { moveTo(x1, y1); lineTo(x1 + 1f, y1) }
+        val first = GestureDescription.StrokeDescription(hold1, 0, 220L, true)
+        if (!dispatchStroke(first)) return false
+        val move = Path().apply { moveTo(x1 + 1f, y1); lineTo(x2, y2) }
+        val second = first.continueStroke(move, 0, moveMs, true)
+        if (!dispatchStroke(second)) return false
+        val settle = Path().apply { moveTo(x2, y2); lineTo(x2 + 1f, y2) }
+        val third = second.continueStroke(settle, 0, 150L, true)
+        if (!dispatchStroke(third)) return false
+        heldStroke = third
+        heldX = x2 + 1f
+        heldY = y2
+        return true
+    }
+
+    private suspend fun moveHeldTo(x: Float, y: Float, moveMs: Long): Boolean {
+        val held = heldStroke ?: return false
+        val move = Path().apply { moveTo(heldX, heldY); lineTo(x, y) }
+        val moved = held.continueStroke(move, 0, moveMs.coerceIn(80L, 1000L), true)
+        if (!dispatchStroke(moved)) { heldStroke = null; return false }
+        val settle = Path().apply { moveTo(x, y); lineTo(x + 1f, y) }
+        val settled = moved.continueStroke(settle, 0, 150L, true)
+        if (!dispatchStroke(settled)) { heldStroke = null; return false }
+        heldStroke = settled
+        heldX = x + 1f
+        heldY = y
+        return true
+    }
+
+    private suspend fun releaseHeldTouch(): Boolean {
+        val held = heldStroke ?: return false
+        heldStroke = null
+        val lift = Path().apply { moveTo(heldX, heldY); lineTo(heldX - 1f, heldY) }
+        return dispatchStroke(held.continueStroke(lift, 0, 120L, false))
+    }
+
     private suspend fun dispatchHeldDrag(
         x1: Float, y1: Float, x2: Float, y2: Float,
         moveMs: Long, holdStartMs: Long = 220L, holdEndMs: Long = 200L
@@ -337,6 +380,26 @@ class AutoPlayerService : AccessibilityService() {
                 )
                 delay(220)
                 return completed
+            }
+
+            override suspend fun dragAndHold(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long): Boolean {
+                val (w, h) = screen()
+                return beginHeldDrag(
+                    x1.coerceIn(0.01f, 0.99f) * w, y1.coerceIn(0.01f, 0.99f) * h,
+                    x2.coerceIn(0.01f, 0.99f) * w, y2.coerceIn(0.01f, 0.99f) * h,
+                    ms.coerceIn(500, 1800)
+                )
+            }
+
+            override suspend fun moveHeld(x: Float, y: Float, ms: Long): Boolean {
+                val (w, h) = screen()
+                return moveHeldTo(x.coerceIn(0.01f, 0.99f) * w, y.coerceIn(0.01f, 0.99f) * h, ms)
+            }
+
+            override suspend fun releaseHeld(): Boolean {
+                val released = releaseHeldTouch()
+                delay(220)
+                return released
             }
             override fun isFrameFresh(): Boolean = AgentBus.isFrameFresh()
 

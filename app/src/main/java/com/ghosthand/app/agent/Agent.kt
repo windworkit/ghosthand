@@ -2,11 +2,13 @@
 package com.ghosthand.app.agent
 
 import android.graphics.Bitmap
+import android.os.SystemClock
 import com.ghosthand.app.solver.BlockSolver
 import com.ghosthand.app.solver.ObjectiveGoal
 import com.ghosthand.app.vision.BoardReader
 import com.ghosthand.app.vision.GameGeometry
 import com.ghosthand.app.vision.BoardObjectType
+import com.ghosthand.app.vision.FloatingPieceLocator
 import com.ghosthand.app.vision.ObjectiveReader
 import com.ghosthand.app.vision.ObjectiveProgressTracker
 import com.ghosthand.app.vision.ObjectiveBoardClassificationGate
@@ -317,7 +319,42 @@ class Agent(
             }
 
             onStatus("Plan p${m.pieceIdx + 1} -> c${m.x + 1} r${m.y + 1} #${attempt + 1}; goals=$objectiveSummary")
-            val dispatched = motor.drag(startNx, startNy, endNx, endNy, ms = 1000)
+            // Hold the piece over the board, look where the game actually
+            // draws it, slide the finger to put the piece centre on the target
+            // centre, then let go. Falls back to a plain drag if holding
+            // isn't available.
+            var finalAdj = adj
+            val dispatched: Boolean
+            if (motor.dragAndHold(startNx, startNy, endNx, endNy, ms = 900)) {
+                var fingerX = dropX
+                var fingerY = dropY
+                var since = SystemClock.elapsedRealtime() + FRAME_LAG_MS
+                for (fix in 0 until MAX_AIM_FIXES) {
+                    val held = heldFrame(bmp, since) ?: break
+                    val located = locateHeldPiece(bmp, held, geo, piece, grabX, grabY)
+                    if (located == null) {
+                        onStatus("Aim check: piece not found; dropping as aimed")
+                        break
+                    }
+                    val ex = targetAnchorX - located.centerX
+                    val ey = targetAnchorY - located.centerY
+                    if (abs(ex) <= cell * AIM_TOLERANCE && abs(ey) <= cell * AIM_TOLERANCE) break
+                    val nx = (fingerX + ex) / reading.bmpW
+                    val ny = (fingerY + ey) / reading.bmpH
+                    if (!nx.isFinite() || !ny.isFinite() || nx !in 0.01f..0.99f || ny !in 0.01f..0.99f) break
+                    onStatus("Aim fix ${"%.1f".format(ex / cell)},${"%.1f".format(ey / cell)} cells")
+                    if (!motor.moveHeld(nx, ny, 250)) break
+                    fingerX += ex
+                    fingerY += ey
+                    since = SystemClock.elapsedRealtime() + FRAME_LAG_MS
+                }
+                finalAdj = Adj((fingerX - targetAnchorX) / cell, (fingerY - targetAnchorY) / cell)
+                motor.releaseHeld()
+                // The touch has ended either way; let the board re-read decide.
+                dispatched = true
+            } else {
+                dispatched = motor.drag(startNx, startNy, endNx, endNy, ms = 1000)
+            }
             if (!dispatched) {
                 stopOnFailedPlacement = true
                 onStatus("Android cancelled/rejected drag — paused")
@@ -357,11 +394,11 @@ class Agent(
                 onStatus("Board changed; landing uncertain — paused")
                 return true
             } else if (landing.first == 0 && landing.second == 0) {
-                remember(key, adj)
+                remember(key, finalAdj)
                 onStatus("Placed on target")
             } else {
                 // It landed (dx, dy) cells away from the intent; move the aim the other way.
-                remember(key, Adj(adj.x - landing.first, adj.y - landing.second))
+                remember(key, Adj(finalAdj.x - landing.first, finalAdj.y - landing.second))
                 onStatus("Off by ${fmt(landing.first)},${fmt(landing.second)}; adjusted")
             }
             delay(300)
@@ -437,6 +474,44 @@ class Agent(
         second: BoardReader.GridSnapshot
     ): Boolean = reader.sameVisualState(first, second)
 
+    /** A frame captured after [sinceMs] (so it shows the held piece), or null. */
+    private suspend fun heldFrame(before: Bitmap, sinceMs: Long): Bitmap? {
+        val deadline = SystemClock.elapsedRealtime() + HELD_FRAME_TIMEOUT_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val f = AgentBus.frame.value
+            if (f != null && f !== before && !f.isRecycled && AgentBus.lastFrameAtMs >= sinceMs) return f
+            delay(40)
+        }
+        return null
+    }
+
+    private fun locateHeldPiece(
+        before: Bitmap, held: Bitmap, geo: GameGeometry.Geo,
+        piece: BoardReader.Piece, grabX: Float, grabY: Float
+    ): FloatingPieceLocator.Located? {
+        if (before.width != held.width || before.height != held.height) return null
+        val w = before.width
+        val cell = geo.cell.toFloat()
+        val top = (geo.oy - cell * 1.5f).toInt().coerceIn(0, before.height - 1)
+        val bottom = (geo.oy + geo.rows * cell + cell * 3f).toInt().coerceIn(top + 1, before.height)
+        val rows = bottom - top
+        return runCatching {
+            val a = IntArray(w * rows)
+            val b = IntArray(w * rows)
+            before.getPixels(a, 0, w, 0, top, w, rows)
+            held.getPixels(b, 0, w, 0, top, w, rows)
+            // The grabbed tray tile still shows the piece colour in `before`.
+            val gy = grabY.toInt() - top
+            if (gy !in 0 until rows) return null
+            val color = FloatingPieceLocator.sampleColor(
+                a, w, rows, grabX.toInt(), gy, (cell * 0.08f).toInt().coerceAtLeast(1)
+            )
+            FloatingPieceLocator.locate(
+                a, b, w, rows, 0, 0, w, rows, color, cell, piece.w, piece.h
+            )?.let { it.copy(centerY = it.centerY + top) }
+        }.getOrNull()
+    }
+
     private fun fmt(v: Int): String = if (v > 0) "+$v" else v.toString()
 
     private fun traySlot(r: BoardReader.Reading, idx: Int): Pair<Float, Float> {
@@ -500,6 +575,12 @@ class Agent(
 
     private companion object {
         const val MIN_BACKGROUND_SUPPORT = 0.35f
+
+        // Held-drag aim correction.
+        const val MAX_AIM_FIXES = 3
+        const val AIM_TOLERANCE = 0.15f // cells
+        const val FRAME_LAG_MS = 150L
+        const val HELD_FRAME_TIMEOUT_MS = 1_200L
 
         // Starting guess: finger below the piece's centre (the game lifts the
         // dragged piece above the finger). 2 cells landed "a bit high" on a
