@@ -33,6 +33,7 @@ data class ObjectiveMoveEvaluation(
     val applesCollected: Int,
     val appleFallDistance: Int,
     val balloonBlocksTouched: Int,
+    val resultingBoard: Array<Array<BoardObjectType>>,
     val scoreBonus: Long
 )
 
@@ -45,8 +46,8 @@ data class ObjectiveMoveEvaluation(
  * their release count is not inferred. Other object types receive no guessed
  * objective bonus.
  *
- * This pure model does not choose moves and is not called by Agent yet:
- * BoardReader still classifies occupied cells as UNCLASSIFIED_OCCUPIED.
+ * The live solver may use this model only when Agent supplies a complete
+ * board whose occupied cells all have supported, confident object labels.
  */
 object ObjectiveMoveScorer {
 
@@ -90,7 +91,9 @@ object ObjectiveMoveScorer {
             (0 until rows).all { row -> next[column][row] != BoardObjectType.EMPTY }
         }
         if (fullRows.isEmpty() && fullColumns.isEmpty()) {
-            return ObjectiveMoveEvaluation(emptyList(), emptyList(), 0, 0, 0, 0, 0L)
+            return ObjectiveMoveEvaluation(
+                emptyList(), emptyList(), 0, 0, 0, 0, next, 0L
+            )
         }
 
         val rowsToClear = fullRows.toSet()
@@ -155,6 +158,7 @@ object ObjectiveMoveScorer {
             applesCollected = applesCollected,
             appleFallDistance = appleFallDistance,
             balloonBlocksTouched = balloonBlocksTouched,
+            resultingBoard = next,
             scoreBonus = scoreBonus
         )
     }
