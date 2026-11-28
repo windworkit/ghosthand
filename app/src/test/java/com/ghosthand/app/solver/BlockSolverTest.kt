@@ -42,6 +42,31 @@ class BlockSolverTest {
     }
 
     @Test
+    fun rejectsObjectiveScoringWhenSpecialTileMechanicIsNotModeled() {
+        val grid = Array(4) { BooleanArray(4) }
+        grid[1][1] = true
+        val objectiveBoard = Array(4) { Array(4) { com.ghosthand.app.vision.BoardObjectType.EMPTY } }
+        objectiveBoard[1][1] = com.ghosthand.app.vision.BoardObjectType.BALLOON
+        val single = BoardReader.Piece("single", listOf(0 to 0), 1, 1)
+        val solver = BlockSolver(4, 4)
+
+        assertTrue(solver.solve(grid, listOf(single), objectiveBoard) == null)
+        assertTrue(solver.lastDiagnostic.contains("unsupported special tile"))
+    }
+
+    @Test
+    fun rejectsObjectiveLabelsThatDoNotMatchOccupancy() {
+        val grid = Array(4) { BooleanArray(4) }
+        val objectiveBoard = Array(4) { Array(4) { com.ghosthand.app.vision.BoardObjectType.EMPTY } }
+        objectiveBoard[1][1] = com.ghosthand.app.vision.BoardObjectType.HEART
+        val single = BoardReader.Piece("single", listOf(0 to 0), 1, 1)
+        val solver = BlockSolver(4, 4)
+
+        assertTrue(solver.solve(grid, listOf(single), objectiveBoard) == null)
+        assertTrue(solver.lastDiagnostic.contains("disagree"))
+    }
+
+    @Test
     fun irregularPieceMayUseAnEmptyCellInsideItsBoundingBox() {
         val grid = Array(8) { BooleanArray(8) }
         // The top-right cell is intentionally absent from this L shape.
