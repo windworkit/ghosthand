@@ -82,11 +82,16 @@ class BoardOccupancyClassifierTest {
         // About two thirds full, like a late Woodoku Blast level: only ~37%
         // of perimeter samples are background, but every empty cell is clean.
         val background = RgbColor(24, 33, 57)
-        val orange = RgbColor(230, 130, 40)
+        // Mixed block colours, as on a real level, so no single block
+        // colour outnumbers the empty surface.
+        val blocks = listOf(
+            RgbColor(230, 130, 40), RgbColor(220, 110, 160),
+            RgbColor(90, 180, 80), RgbColor(170, 120, 90)
+        )
         val samples = Array(8) { x ->
             Array(8) { y ->
                 val occupied = (x * 8 + y) % 8 < 5 // 40 occupied, 24 empty
-                val color = if (occupied) orange else background
+                val color = if (occupied) blocks[(x + y) % blocks.size] else background
                 CellColorSamples(center = color, corners = List(8) { color })
             }
         }
