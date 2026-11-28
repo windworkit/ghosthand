@@ -45,7 +45,7 @@ This document tracks what the objective-aware core does and, just as importantly
 - Models apples surviving a line clear, falling through newly empty cells, and collecting only when they reach the bottom.
 - Reports balloon-block contacts without guessing how many balloons were released.
 - Unknown flower/butterfly/bomb/firework/gem/crate mechanics receive no invented objective bonus.
-- The solver accepts the evaluator as an optional scoring path. Agent enables it only when every occupied cell is confidently labeled as an ordinary block, heart, apple, or balloon; otherwise it keeps the existing Boolean-grid solver unchanged. The current reader still emits unclassified occupied cells, so live objective scoring remains safely gated off.
+- The solver accepts the evaluator as an optional scoring path. Agent enables it only when every occupied cell is confidently labeled as an ordinary block, heart, or apple; balloon tiles remain gated until release-count state is modeled. Repeated OCR counters of the same type are combined. Otherwise the existing Boolean-grid solver is unchanged. The current reader still emits unclassified occupied cells, so live objective scoring remains safely gated off.
 
 ### Script backup and restore
 - Export scripts into a portable, versioned JSON backup through Android's document picker.
@@ -65,7 +65,7 @@ These are deliberately listed as incomplete; they must not be advertised as work
 
 1. **Icon-level object recognition.** Flower, heart, butterfly, apple, balloon, bomb, fireworks, gem, and crate icons are not yet classified from board pixels. Current occupied cells remain `UNCLASSIFIED_OCCUPIED`.
 2. **Special-object state tracking.** Balloon release counts, apple falling/support, flower/butterfly/heart collection, bomb timers, and obstacle health/removal rules are not simulated yet; the new mechanic catalogue is reference metadata only.
-3. **Objective-aware search.** The live solver has an optional heart/apple scoring path, but Agent keeps it disabled until every occupied cell has a supported, confident label. Icon recognition and empirical weight calibration remain incomplete.
+3. **Objective-aware search.** The live solver has an optional heart/apple scoring path, but Agent keeps it disabled until every occupied cell has a supported, confident label. Balloon stages remain excluded from that optional path. Icon recognition and empirical weight calibration remain incomplete.
 4. **Complete piece catalogue validation.** The tray reader supports fixed-orientation polyomino masks up to 5x5, but the visual catalogue still needs confirmation against real in-game samples for every shape.
 5. **Device/gameplay verification.** Automated JVM tests and APK compilation do not prove screen recognition or touch calibration on a Galaxy Z Fold 7. Real Woodoku Blast frames and an actual successful placement will ultimately be required.
 
