@@ -3,6 +3,8 @@ package com.ghosthand.app.ui
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -47,6 +49,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,16 +67,71 @@ import com.ghosthand.app.Script
 import com.ghosthand.app.ScriptStore
 import com.ghosthand.app.estimateMs
 import com.ghosthand.app.fmtDur
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 @Composable
 fun ScriptListScreen(open: (String) -> Unit) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf(ScriptStore.list()) }
     var serviceOn by remember { mutableStateOf(AutoPlayerService.instance != null) }
     var confirmDelete by remember { mutableStateOf<Script?>(null) }
     val running by AutoPlayerService.isRunning.collectAsState()
     val status by AutoPlayerService.statusText.collectAsState()
+
+    val backupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    val content = withContext(Dispatchers.IO) { ScriptStore.exportBackup() }
+                    withContext(Dispatchers.IO) {
+                        val output = ctx.contentResolver.openOutputStream(uri)
+                            ?: error("Could not open the backup destination")
+                        output.bufferedWriter(Charsets.UTF_8).use { it.write(content) }
+                    }
+                }.onSuccess {
+                    Toast.makeText(ctx, "GhostHand backup saved", Toast.LENGTH_LONG).show()
+                }.onFailure { error ->
+                    Toast.makeText(
+                        ctx, "Backup failed: ${error.message ?: "unknown error"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    val content = withContext(Dispatchers.IO) {
+                        val input = ctx.contentResolver.openInputStream(uri)
+                            ?: error("Could not open the selected backup")
+                        input.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    }
+                    withContext(Dispatchers.IO) { ScriptStore.importBackup(content) }
+                }.onSuccess { count ->
+                    items = ScriptStore.list()
+                    Toast.makeText(
+                        ctx, "Restored $count script(s)", Toast.LENGTH_LONG
+                    ).show()
+                }.onFailure { error ->
+                    Toast.makeText(
+                        ctx, "Restore failed: ${error.message ?: "invalid backup"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
 
     val lc = LocalLifecycleOwner.current
     DisposableEffect(lc) {
@@ -99,7 +157,29 @@ fun ScriptListScreen(open: (String) -> Unit) {
         Spacer(Modifier.height(4.dp))
         Text("NORMALIZED COORDS · FOLD + COVER SAFE · JITTERED INPUT",
             color = AmberDeep, fontSize = 9.sp, fontFamily = Mono, letterSpacing = 1.sp)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = { backupLauncher.launch("GhostHand-backup.json") },
+                modifier = Modifier.weight(1f),
+                border = BorderStroke(1.dp, LineC),
+                shape = RoundedCornerShape(9.dp)
+            ) {
+                Text("BACK UP SCRIPTS", color = Muted, fontSize = 10.sp, fontFamily = Mono)
+            }
+            OutlinedButton(
+                onClick = { restoreLauncher.launch(arrayOf("application/json", "text/*")) },
+                modifier = Modifier.weight(1f),
+                border = BorderStroke(1.dp, LineC),
+                shape = RoundedCornerShape(9.dp)
+            ) {
+                Text("RESTORE SCRIPTS", color = Muted, fontSize = 10.sp, fontFamily = Mono)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
 
         if (running) PlayingStrip(status)
         if (!serviceOn) ServiceBanner { ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }

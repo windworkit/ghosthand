@@ -34,6 +34,12 @@ This document tracks what the objective-aware core does and, just as importantly
 - Parses explicit counters such as `2/5` when they appear in the same OCR line as a recognized objective.
 - Retains unlabelled numeric tokens (including split ratios) for diagnostics instead of guessing their meaning.
 
+### Script backup and restore
+- Export scripts into a portable, versioned JSON backup through Android's document picker.
+- Restore scripts after reinstall; imports are validated and merged by script ID.
+- Validate UUID IDs, normalized coordinates, step durations, loop balance, duplicate IDs, schema version, and backup size before writing anything.
+- Backup/restore is intended to protect local scripts if an app-signing transition requires a one-time reinstall.
+
 ### Automated tests and CI
 - Runs JVM unit tests before building the debug APK.
 - Tests solver line clearing, piece masks, board bounds, shape connectivity, objective-label parsing, and board-color classification.
