@@ -38,6 +38,14 @@ This document tracks what the objective-aware core does and, just as importantly
 - Adds a reference-only mechanic catalogue for hearts, balloons, apples, and score. Public gameplay examples describe marked-tile collection, balloon blocks that persist until their release count is exhausted, and apples that must fall to the bottom.
 - Counter telemetry and mechanic metadata are diagnostic only: neither identifies board icons nor alters move scoring.
 
+### Objective move-impact foundation
+- Added a pure evaluator for hypothetical placements when cells have already been confidently labeled.
+- Scores explicitly recognized heart/marked-tile collection on completed rows and columns.
+- Models apples surviving a line clear, falling through newly empty cells, and collecting only when they reach the bottom.
+- Reports balloon-block contacts without guessing how many balloons were released.
+- Unknown flower/butterfly/bomb/firework/gem/crate mechanics receive no invented objective bonus.
+- The evaluator is not connected to live move selection yet because board icon recognition still returns unclassified occupied cells; existing live solver behavior is unchanged.
+
 ### Script backup and restore
 - Export scripts into a portable, versioned JSON backup through Android's document picker.
 - Restore scripts after reinstall; imports are validated and merged by script ID.
@@ -47,7 +55,7 @@ This document tracks what the objective-aware core does and, just as importantly
 
 ### Automated tests and CI
 - Runs JVM unit tests before building the debug APK.
-- Tests solver line clearing, piece masks, board bounds, shape connectivity, objective-label parsing, debounced objective-counter progress, and board-color classification.
+- Tests solver line clearing, piece masks, board bounds, shape connectivity, objective-label parsing, debounced objective-counter progress, isolated heart/apple objective scoring, and board-color classification.
 - Caches a stable CI debug signing key and increments Android `versionCode` using the GitHub Actions run number.
 
 ## Not implemented yet
@@ -56,7 +64,7 @@ These are deliberately listed as incomplete; they must not be advertised as work
 
 1. **Icon-level object recognition.** Flower, heart, butterfly, apple, balloon, bomb, fireworks, gem, and crate icons are not yet classified from board pixels. Current occupied cells remain `UNCLASSIFIED_OCCUPIED`.
 2. **Special-object state tracking.** Balloon release counts, apple falling/support, flower/butterfly/heart collection, bomb timers, and obstacle health/removal rules are not simulated yet; the new mechanic catalogue is reference metadata only.
-3. **Objective-aware search.** The solver still optimizes ordinary placement/line-clearing outcomes. OCR objective summaries are diagnostic only; they do not yet affect move scoring.
+3. **Objective-aware search.** `ObjectiveMoveScorer` evaluates known heart/apple impacts in isolation, but is not yet wired into the live solver. OCR objective summaries remain diagnostic until icon recognition can supply trustworthy typed board cells.
 4. **Complete piece catalogue validation.** The tray reader supports fixed-orientation polyomino masks up to 5x5, but the visual catalogue still needs confirmation against real in-game samples for every shape.
 5. **Device/gameplay verification.** Automated JVM tests and APK compilation do not prove screen recognition or touch calibration on a Galaxy Z Fold 7. Real Woodoku Blast frames and an actual successful placement will ultimately be required.
 
