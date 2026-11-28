@@ -27,6 +27,7 @@ import android.widget.Toast
 import com.ghosthand.app.agent.Agent
 import com.ghosthand.app.agent.AdSentinel
 import com.ghosthand.app.agent.AgentBus
+import com.ghosthand.app.agent.AgentCaptureService
 import com.ghosthand.app.agent.Motor
 import com.ghosthand.app.vision.Ocr
 import com.ghosthand.app.vision.ScreenClassifier
@@ -77,6 +78,7 @@ class AutoPlayerService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        runCatching { stopService(Intent(this, AgentCaptureService::class.java)) }
         runCatching { crossFrame?.let { wm().removeView(it) } }
         runCatching { pillFrame?.let { wm().removeView(it) } }
         crossFrame = null; pillFrame = null
@@ -110,7 +112,15 @@ class AutoPlayerService : AccessibilityService() {
         }
     }
 
-    fun stop() { playJob?.cancel() }
+    fun stop() {
+        playJob?.cancel()
+        // Smart Play owns the screen-capture session. Stopping automation must
+        // also stop the foreground projection service so it does not keep
+        // recording the screen after the user has pressed Stop.
+        runCatching {
+            stopService(Intent(this, AgentCaptureService::class.java))
+        }
+    }
 
     fun togglePause() {
         paused.value = !paused.value
