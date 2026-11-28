@@ -78,6 +78,47 @@ class BoardOccupancyClassifierTest {
     }
 
     @Test
+    fun crowdedBoardStillReadsAsConfident() {
+        // About two thirds full, like a late Woodoku Blast level: only ~37%
+        // of perimeter samples are background, but every empty cell is clean.
+        val background = RgbColor(24, 33, 57)
+        val orange = RgbColor(230, 130, 40)
+        val samples = Array(8) { x ->
+            Array(8) { y ->
+                val occupied = (x * 8 + y) % 8 < 5 // 40 occupied, 24 empty
+                val color = if (occupied) orange else background
+                CellColorSamples(center = color, corners = List(8) { color })
+            }
+        }
+
+        val result = BoardOccupancyClassifier.classify(samples)
+
+        assertEquals(background, result.background)
+        assertTrue(result.backgroundSupport > 0.9f)
+    }
+
+    @Test
+    fun emptyCellsWithForeignEdgesLowerConfidence() {
+        val background = RgbColor(24, 33, 57)
+        val orange = RgbColor(230, 130, 40)
+        val samples = Array(8) { x ->
+            Array(8) { y ->
+                val occupied = x < 3
+                CellColorSamples(
+                    center = if (occupied) orange else background,
+                    // Empty-looking centres but most edges are block colour:
+                    // the grid is misaligned with the real cells.
+                    corners = List(8) { i -> if (occupied || i < 3) background else orange }
+                )
+            }
+        }
+
+        val result = BoardOccupancyClassifier.classify(samples)
+
+        assertTrue(result.backgroundSupport < 0.5f)
+    }
+
+    @Test
     fun rejectsInvalidSampleGrids() {
         val color = RgbColor(10, 20, 30)
         val emptyCorners = CellColorSamples(color, emptyList())

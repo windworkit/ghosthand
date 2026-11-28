@@ -71,7 +71,10 @@ object BoardOccupancyClassifier {
             backgroundSamples.sumOf { it.green } / backgroundSamples.size,
             backgroundSamples.sumOf { it.blue } / backgroundSamples.size
         )
-        val support = backgroundSamples.size.toFloat() / perimeterSampleCount
+        // Share of all perimeter samples in the background colour. On a
+        // crowded board this is naturally small (a 2/3-full board tops out
+        // near 1/3), so it is only a floor against a nonsense read.
+        val modeShare = backgroundSamples.size.toFloat() / perimeterSampleCount
 
         val classified = Array(samples.size) { x ->
             Array(rows) { y ->
@@ -92,8 +95,37 @@ object BoardOccupancyClassifier {
                 )
             }
         }
+        // Confidence that the read is sane: the cells judged empty should
+        // look like empty board all the way to their edges. This does not
+        // depend on how full the board is.
+        var emptyEdgeSamples = 0
+        var emptyEdgeMatches = 0
+        samples.forEachIndexed { x, column ->
+            column.forEachIndexed { y, cell ->
+                if (classified[x][y].occupied) return@forEachIndexed
+                cell.corners.forEach { color ->
+                    emptyEdgeSamples++
+                    if (distance(color, background) <= EDGE_MATCH_DISTANCE) emptyEdgeMatches++
+                }
+            }
+        }
+        val support = when {
+            modeShare < MIN_MODE_SHARE -> modeShare
+            emptyEdgeSamples == 0 -> modeShare
+            else -> emptyEdgeMatches.toFloat() / emptyEdgeSamples
+        }
         return BoardOccupancyResult(classified, background, support)
     }
+
+    private fun distance(a: RgbColor, b: RgbColor): Int =
+        kotlin.math.abs(a.red - b.red) + kotlin.math.abs(a.green - b.green) +
+            kotlin.math.abs(a.blue - b.blue)
+
+    // Below this share of background-coloured samples the read is garbage
+    // (wrong board position) no matter what the empty cells look like.
+    private const val MIN_MODE_SHARE = 0.12f
+    // An empty cell's edge sample counts as board surface within this.
+    private const val EDGE_MATCH_DISTANCE = 42
 
     private fun bucketKey(color: RgbColor): Int =
         ((color.red shr 4) shl 8) or ((color.green shr 4) shl 4) or (color.blue shr 4)
