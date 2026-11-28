@@ -56,7 +56,7 @@ This document tracks what the objective-aware core does and, just as importantly
 
 ### Automated tests and CI
 - Runs JVM unit tests before building the debug APK.
-- Tests solver line clearing, piece masks, board bounds, shape connectivity, objective-label parsing, debounced objective-counter progress, isolated heart/apple objective scoring, and board-color classification.
+- Tests solver line clearing on 8x8 and 9x9 boards, piece masks, board bounds, shape connectivity, objective-label parsing, debounced objective-counter progress, isolated heart/apple objective scoring, seam-based grid-size selection, and board-color classification.
 - Caches a stable CI debug signing key and increments Android `versionCode` using the GitHub Actions run number.
 
 ## Not implemented yet
