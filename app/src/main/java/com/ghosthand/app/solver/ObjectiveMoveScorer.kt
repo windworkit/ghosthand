@@ -105,7 +105,10 @@ object ObjectiveMoveScorer {
             for (row in 0 until rows) {
                 if (row !in rowsToClear && column !in columnsToClear) continue
                 when (next[column][row]) {
-                    BoardObjectType.HEART -> markedCollected++
+                    BoardObjectType.HEART -> {
+                        markedCollected++
+                        next[column][row] = BoardObjectType.EMPTY
+                    }
                     BoardObjectType.BALLOON -> balloonBlocksTouched++
                     BoardObjectType.APPLE -> Unit
                     else -> next[column][row] = BoardObjectType.EMPTY
