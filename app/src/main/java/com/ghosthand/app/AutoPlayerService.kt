@@ -224,6 +224,42 @@ class AutoPlayerService : AccessibilityService() {
         }
     }
 
+    /**
+     * One continuous touch made of three chained strokes (API 26+
+     * continueStroke): hold at the start, travel, hold at the end. The finger
+     * never lifts between segments, so the game sees a single drag.
+     */
+    private suspend fun dispatchHeldDrag(
+        x1: Float, y1: Float, x2: Float, y2: Float,
+        moveMs: Long, holdStartMs: Long = 220L, holdEndMs: Long = 200L
+    ): Boolean {
+        val hold1 = Path().apply { moveTo(x1, y1); lineTo(x1 + 1f, y1) }
+        val first = GestureDescription.StrokeDescription(hold1, 0, holdStartMs, true)
+        if (!dispatchStroke(first)) return false
+
+        val move = Path().apply { moveTo(x1 + 1f, y1); lineTo(x2, y2) }
+        val second = first.continueStroke(move, 0, moveMs, true)
+        if (!dispatchStroke(second)) return false
+
+        val hold2 = Path().apply { moveTo(x2, y2); lineTo(x2 + 1f, y2) }
+        val third = second.continueStroke(hold2, 0, holdEndMs, false)
+        return dispatchStroke(third)
+    }
+
+    private suspend fun dispatchStroke(stroke: GestureDescription.StrokeDescription): Boolean =
+        suspendCancellableCoroutine { cont ->
+            val gesture = GestureDescription.Builder().addStroke(stroke).build()
+            val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) {
+                    if (cont.isActive) cont.resume(true)
+                }
+                override fun onCancelled(g: GestureDescription?) {
+                    if (cont.isActive) cont.resume(false)
+                }
+            }, null)
+            if (!accepted && cont.isActive) cont.resume(false)
+        }
+
     private suspend fun dwell() { delay(rnd2(40L, 130L)) }
     private fun rnd(spread: Long) = if (spread <= 0) 0L else Random.nextLong(0, spread + 1)
     private fun rnd2(from: Long, to: Long) = if (to <= from) from else Random.nextLong(from, to + 1)
@@ -290,12 +326,15 @@ class AutoPlayerService : AccessibilityService() {
                 val startY = y1.coerceIn(0.01f, 0.99f) * h
                 val endX = x2.coerceIn(0.01f, 0.99f) * w
                 val endY = y2.coerceIn(0.01f, 0.99f) * h
-                val path = Path().apply {
-                    moveTo(startX, startY)
-                    lineTo(endX, endY)
-                }
-
-                val completed = dispatch(path, ms.coerceIn(500, 1800))
+                // Press-and-hold, move, then hold before lifting. A drag that
+                // starts moving on touch-down and lifts while still moving
+                // was ignored by Woodoku Blast on the Fold 7 (board unchanged
+                // on every probe); games need the press to pick a piece up
+                // and a settled finger to accept the drop.
+                val completed = dispatchHeldDrag(
+                    startX, startY, endX, endY,
+                    moveMs = ms.coerceIn(500, 1800)
+                )
                 delay(220)
                 return completed
             }
