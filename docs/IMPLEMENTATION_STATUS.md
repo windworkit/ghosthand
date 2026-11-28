@@ -18,6 +18,7 @@ This document tracks what the objective-aware core does and, just as importantly
 - Uses cell-center RGB/luminance against a background estimated from cell perimeter samples.
 - Reports the support/confidence for that background estimate and refuses to move when it is weak.
 - Preserves occupied-but-unclassified cells instead of pretending to know their object type.
+- Compares quantized per-cell RGB signatures as well as occupancy after a drop, so a special-object visual transition is not mistaken for a rejected gesture and blindly retried. Ambiguous objective-only changes pause safely.
 - Requires an 8x8 board fully inside the captured frame.
 - Expands board-rail search ranges for both the Fold cover and inner display.
 - Tracks capture-frame freshness.

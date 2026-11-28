@@ -6,6 +6,11 @@ data class RgbColor(val red: Int, val green: Int, val blue: Int) {
     }
 
     val luminance: Int get() = (red + green + blue) / 3
+
+    // Quantized RGB is stable against minor anti-aliasing but still detects
+    // meaningful changes to an occupied objective tile.
+    val signature: Int get() =
+        ((red shr 4) shl 8) or ((green shr 4) shl 4) or (blue shr 4)
 }
 
 data class CellColorSamples(
@@ -16,7 +21,8 @@ data class CellColorSamples(
 data class ClassifiedCell(
     val occupied: Boolean,
     val luminance: Int,
-    val backgroundDistance: Int
+    val backgroundDistance: Int,
+    val colorSignature: Int
 )
 
 data class BoardOccupancyResult(
@@ -81,7 +87,8 @@ object BoardOccupancyClassifier {
                 ClassifiedCell(
                     occupied = distance >= 42,
                     luminance = center.luminance,
-                    backgroundDistance = distance
+                    backgroundDistance = distance,
+                    colorSignature = center.signature
                 )
             }
         }

@@ -29,6 +29,13 @@ class BoardReader {
         // Occupancy is not the same thing as object identity. Unrecognized
         // occupied cells remain explicit instead of being assumed ordinary.
         val boardCells: Array<Array<BoardCellObservation>>,
+        val backgroundSupport: Float,
+        val colorSignatures: Array<IntArray>
+    )
+
+    data class GridSnapshot(
+        val occupied: Array<BooleanArray>,
+        val colorSignatures: Array<IntArray>,
         val backgroundSupport: Float
     )
 
@@ -62,8 +69,11 @@ class BoardReader {
         fun read(bmp: Bitmap, geo: GameGeometry.Geo): Reading? {
         val (grid, boardCells, backgroundSupport) = readBoardCells(bmp, geo)
         val tray = readTray(bmp, geo) ?: return null
+        val signatures = Array(geo.cols) { x ->
+            IntArray(geo.rows) { y -> boardCells[x][y].centerColorSignature }
+        }
         return Reading(
-            grid, tray, geo, bmp.width, bmp.height, boardCells, backgroundSupport
+            grid, tray, geo, bmp.width, bmp.height, boardCells, backgroundSupport, signatures
         )
     }
 
@@ -76,6 +86,32 @@ class BoardReader {
     ): Pair<Array<BooleanArray>, Float> {
         val result = readBoardCells(bmp, geo)
         return result.first to result.third
+    }
+
+    fun readGridSnapshot(
+        bmp: Bitmap,
+        geo: GameGeometry.Geo
+    ): GridSnapshot {
+        val (occupied, cells, backgroundSupport) = readBoardCells(bmp, geo)
+        val signatures = Array(geo.cols) { x ->
+            IntArray(geo.rows) { y -> cells[x][y].centerColorSignature }
+        }
+        return GridSnapshot(occupied, signatures, backgroundSupport)
+    }
+
+    /**
+     * A board transition is settled only when both its occupied-cell map and
+     * per-cell visual signatures are stable. This catches objective stages
+     * that change color/art without changing whether a cell is occupied.
+     */
+    fun sameVisualState(first: GridSnapshot, second: GridSnapshot): Boolean {
+        if (first.occupied.size != second.occupied.size ||
+            first.colorSignatures.size != second.colorSignatures.size
+        ) return false
+        return first.occupied.indices.all { x ->
+            first.occupied[x].contentEquals(second.occupied[x]) &&
+                first.colorSignatures[x].contentEquals(second.colorSignatures[x])
+        }
     }
 
     /**
@@ -153,7 +189,8 @@ class BoardReader {
                         BoardObjectType.EMPTY
                     },
                     luminance = cell.luminance,
-                    backgroundDistance = cell.backgroundDistance
+                    backgroundDistance = cell.backgroundDistance,
+                    centerColorSignature = cell.colorSignature
                 )
             }
         }

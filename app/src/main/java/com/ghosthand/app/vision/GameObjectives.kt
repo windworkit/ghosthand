@@ -27,7 +27,8 @@ data class BoardCellObservation(
     val occupied: Boolean,
     val objectType: BoardObjectType,
     val luminance: Int,
-    val backgroundDistance: Int
+    val backgroundDistance: Int,
+    val centerColorSignature: Int
 )
 
 /** Gameplay objectives that GhostHand may encounter in Woodoku Blast. */

@@ -274,9 +274,22 @@ class Agent(
                 onStatus("Can't re-read board — paused")
                 return true
             }
-            if (gridsEqual(reading.grid, after)) continue // rejected; nudge and retry
+            if (gridsEqual(reading.grid, after.occupied)) {
+                if (colorSignaturesEqual(reading.colorSignatures, after.colorSignatures)) {
+                    continue // no observable board change: rejected; try the next probe
+                }
+                // A special objective can change its visual state without
+                // changing cell occupancy. Do not classify that as a rejected
+                // drop or repeat the same gesture; icon/state semantics are not
+                // confirmed yet, so pause for a fresh level read.
+                stopOnFailedPlacement = true
+                onStatus("Board changed visually without occupancy change — objective transition; paused")
+                return true
+            }
 
-            val landing = findLanding(solver, reading.grid, after, piece, m.x, m.y, geo.cols, geo.rows)
+            val landing = findLanding(
+                solver, reading.grid, after.occupied, piece, m.x, m.y, geo.cols, geo.rows
+            )
             if (landing == null) {
                 stopOnFailedPlacement = true
                 onStatus("Board changed; landing uncertain — paused")
@@ -338,21 +351,29 @@ class Agent(
     }
 
     /** Re-read the board until two consecutive reads agree (animations finished). */
-    private suspend fun settledGrid(frame: () -> Bitmap?, geo: GameGeometry.Geo): Array<BooleanArray>? {
-        var previous: Array<BooleanArray>? = null
+    private suspend fun settledGrid(
+        frame: () -> Bitmap?,
+        geo: GameGeometry.Geo
+    ): BoardReader.GridSnapshot? {
+        var previous: BoardReader.GridSnapshot? = null
         for (i in 0 until 8) {
             delay(450)
             val bmp = frame() ?: continue
             if (!motor.isFrameFresh() || !motor.isFrameAligned(bmp.width, bmp.height)) return null
-            val (grid, backgroundSupport) = reader.readGridWithConfidence(bmp, geo)
-            if (backgroundSupport < MIN_BACKGROUND_SUPPORT) return null
+            val current = reader.readGridSnapshot(bmp, geo)
+            if (current.backgroundSupport < MIN_BACKGROUND_SUPPORT) return null
             val prev = previous
-            if (prev != null && gridsEqual(prev, grid)) return grid
-            previous = grid
+            if (prev != null && boardSnapshotsEqual(prev, current)) return current
+            previous = current
         }
         // An unstable board is not a trustworthy placement result.
         return null
     }
+
+    private fun boardSnapshotsEqual(
+        first: BoardReader.GridSnapshot,
+        second: BoardReader.GridSnapshot
+    ): Boolean = reader.sameVisualState(first, second)
 
     private fun fmt(v: Int): String = if (v > 0) "+$v" else v.toString()
 
