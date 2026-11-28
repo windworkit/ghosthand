@@ -155,7 +155,7 @@ class Agent(
             geo = GameGeometry.calibrate(bmp)
             if (geo == null || !isGeometryUsable(geo, bmp)) {
                 geoCache = null
-                onStatus("Grid: no valid 8x8 board")
+                onStatus("Grid: no valid 8x8/9x9 board")
                 return false
             }
             geoCache = geo
@@ -422,7 +422,7 @@ class Agent(
      * false empty-cell map look internally consistent.
      */
     private fun isGeometryUsable(geo: GameGeometry.Geo, bmp: Bitmap): Boolean {
-        if (geo.cols != 8 || geo.rows != 8 || geo.cell < 6) return false
+        if (geo.cols !in 8..9 || geo.rows != geo.cols || geo.cell < 6) return false
         if (geo.ox < 0 || geo.oy < 0) return false
         val right = geo.ox + geo.cols * geo.cell
         val bottom = geo.oy + geo.rows * geo.cell
