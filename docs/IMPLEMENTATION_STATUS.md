@@ -31,11 +31,12 @@ This document tracks what the objective-aware core does and, just as importantly
 
 ### Objective OCR and progress telemetry
 - Preserves both token-level and line-level OCR results.
-- Recognizes explicit textual labels for flowers, butterflies, apples, balloons, bombs, fireworks, gems, crates/boxes, and score.
+- Recognizes explicit textual labels for flowers, hearts, butterflies, apples, balloons, bombs, fireworks, gems, crates/boxes, and score.
 - Parses explicit counters such as `2/5` when they appear in the same OCR line as a recognized objective.
 - Retains unlabelled numeric tokens (including split ratios) for diagnostics instead of guessing their meaning.
 - Tracks explicitly labeled counter changes by objective type and approximate screen position. A progress/regression event is reported only after the new value appears in two separate captured frames, reducing one-frame OCR false positives.
-- Counter telemetry is diagnostic only: it does not yet identify icons, infer special-object mechanics, or alter move scoring.
+- Adds a reference-only mechanic catalogue for hearts, balloons, apples, and score. Public gameplay examples describe marked-tile collection, balloon blocks that persist until their release count is exhausted, and apples that must fall to the bottom.
+- Counter telemetry and mechanic metadata are diagnostic only: neither identifies board icons nor alters move scoring.
 
 ### Script backup and restore
 - Export scripts into a portable, versioned JSON backup through Android's document picker.
@@ -53,8 +54,8 @@ This document tracks what the objective-aware core does and, just as importantly
 
 These are deliberately listed as incomplete; they must not be advertised as working features.
 
-1. **Icon-level object recognition.** Flower, butterfly, apple, balloon, bomb, fireworks, gem, and crate icons are not yet classified from board pixels. Current occupied cells remain `UNCLASSIFIED_OCCUPIED`.
-2. **Special-object state tracking.** Balloon stages, apple falling, flower/butterfly collection, bomb timers, and any obstacle health/removal rules are not simulated yet.
+1. **Icon-level object recognition.** Flower, heart, butterfly, apple, balloon, bomb, fireworks, gem, and crate icons are not yet classified from board pixels. Current occupied cells remain `UNCLASSIFIED_OCCUPIED`.
+2. **Special-object state tracking.** Balloon release counts, apple falling/support, flower/butterfly/heart collection, bomb timers, and obstacle health/removal rules are not simulated yet; the new mechanic catalogue is reference metadata only.
 3. **Objective-aware search.** The solver still optimizes ordinary placement/line-clearing outcomes. OCR objective summaries are diagnostic only; they do not yet affect move scoring.
 4. **Complete piece catalogue validation.** The tray reader supports fixed-orientation polyomino masks up to 5x5, but the visual catalogue still needs confirmation against real in-game samples for every shape.
 5. **Device/gameplay verification.** Automated JVM tests and APK compilation do not prove screen recognition or touch calibration on a Galaxy Z Fold 7. Real Woodoku Blast frames and an actual successful placement will ultimately be required.
