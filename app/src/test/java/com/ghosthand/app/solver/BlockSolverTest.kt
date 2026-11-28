@@ -26,6 +26,22 @@ class BlockSolverTest {
     }
 
     @Test
+    fun supportsNineByNineWoodokuBoardDimensions() {
+        val cols = 9
+        val rows = 9
+        val grid = Array(cols) { BooleanArray(rows) }
+        for (x in 0 until 8) grid[x][8] = true
+        val single = BoardReader.Piece("single", listOf(0 to 0), 1, 1)
+        val solver = BlockSolver(cols, rows)
+
+        assertTrue(solver.canFit(grid, single, 8, 8))
+        val after = solver.place(grid, single, 8, 8)
+
+        assertTrue((0 until 9).all { x -> !after[x][8] })
+        assertTrue(after.all { column -> column.none { it } })
+    }
+
+    @Test
     fun irregularPieceMayUseAnEmptyCellInsideItsBoundingBox() {
         val grid = Array(8) { BooleanArray(8) }
         // The top-right cell is intentionally absent from this L shape.
