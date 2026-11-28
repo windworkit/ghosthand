@@ -211,7 +211,8 @@ class BoardReader {
                     },
                     luminance = cell.luminance,
                     backgroundDistance = cell.backgroundDistance,
-                    centerColorSignature = cell.colorSignature
+                    centerColorSignature = cell.colorSignature,
+                    objectConfidence = if (cell.occupied) 0f else 1f
                 )
             }
         }
