@@ -40,12 +40,13 @@ This document tracks what the objective-aware core does and, just as importantly
 
 ### Objective move-impact foundation
 - Added a pure evaluator for hypothetical placements when cells have already been confidently labeled. It rejects unclassified and unsupported board-object types instead of silently treating them as ordinary blocks.
+- Added a separate semantic-confidence field to each cell observation; the current occupancy reader deliberately assigns 0% object confidence to occupied cells until icon templates are validated.
 - Geometry calibration now supports both 8x8 and 9x9 boards and scores internal seam alignment before choosing a size.
 - Scores explicitly recognized heart/marked-tile collection on completed rows and columns.
 - Models apples surviving a line clear, falling through newly empty cells, and collecting only when they reach the bottom.
 - Reports balloon-block contacts without guessing how many balloons were released.
 - Unknown flower/butterfly/bomb/firework/gem/crate mechanics receive no invented objective bonus.
-- The solver accepts the evaluator as an optional scoring path. Agent enables it only when every occupied cell is confidently labeled as an ordinary block, heart, or apple; balloon tiles remain gated until release-count state is modeled. Repeated OCR counters of the same type are combined. Otherwise the existing Boolean-grid solver is unchanged. The current reader still emits unclassified occupied cells, so live objective scoring remains safely gated off.
+- The solver accepts the evaluator as an optional scoring path. `ObjectiveBoardClassificationGate` requires every occupied cell to be labeled as an ordinary block, heart, or apple with at least 92% object-classification confidence; balloon tiles remain gated until release-count state is modeled. Repeated OCR counters of the same type are combined. Otherwise the existing Boolean-grid solver is unchanged. The current reader still marks occupied cells as unclassified with 0% object confidence, so live objective scoring remains safely gated off.
 
 ### Script backup and restore
 - Export scripts into a portable, versioned JSON backup through Android's document picker.
