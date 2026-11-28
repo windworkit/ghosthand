@@ -18,7 +18,6 @@ class ObjectiveMoveScorerTest {
     fun scoresMarkedHeartTilesCollectedByCompletedRow() {
         val board = emptyBoard()
         board[1][1] = BoardObjectType.HEART
-        board[0][1] = BoardObjectType.ORDINARY_BLOCK
         board[2][1] = BoardObjectType.ORDINARY_BLOCK
         board[3][1] = BoardObjectType.ORDINARY_BLOCK
 
@@ -36,9 +35,10 @@ class ObjectiveMoveScorerTest {
     @Test
     fun countsMarkedTileOnlyOnceWhenRowAndColumnClearTogether() {
         val board = emptyBoard()
-        for (x in 0 until 4) if (x != 2) board[x][2] = BoardObjectType.ORDINARY_BLOCK
-        for (y in 0 until 4) if (y != 2) board[2][y] = BoardObjectType.ORDINARY_BLOCK
-        board[2][2] = BoardObjectType.HEART
+        for (x in 0 until 4) if (x != 3) board[x][2] = BoardObjectType.ORDINARY_BLOCK
+        for (y in 0 until 4) if (y != 2) board[3][y] = BoardObjectType.ORDINARY_BLOCK
+        board[1][2] = BoardObjectType.HEART
+        board[3][1] = BoardObjectType.HEART
 
         val result = ObjectiveMoveScorer.evaluate(
             board, single, 2, 2,
@@ -47,7 +47,7 @@ class ObjectiveMoveScorerTest {
 
         assertEquals(listOf(2), result.clearedRows)
         assertEquals(listOf(2), result.clearedColumns)
-        assertEquals(1, result.markedTilesCollected)
+        assertEquals(2, result.markedTilesCollected)
         assertEquals(1_000L, result.scoreBonus)
     }
 
@@ -89,7 +89,6 @@ class ObjectiveMoveScorerTest {
     fun reportsBalloonContactWithoutInventingReleasedBalloonCount() {
         val board = emptyBoard()
         board[1][1] = BoardObjectType.BALLOON
-        board[0][1] = BoardObjectType.ORDINARY_BLOCK
         board[2][1] = BoardObjectType.ORDINARY_BLOCK
         board[3][1] = BoardObjectType.ORDINARY_BLOCK
 
