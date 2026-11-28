@@ -30,6 +30,8 @@ class ObjectiveMoveScorerTest {
         assertEquals(1, result.markedTilesCollected)
         assertEquals(0, result.applesCollected)
         assertEquals(1_000L, result.scoreBonus)
+        assertEquals(BoardObjectType.EMPTY, result.resultingBoard[1][1])
+        assertEquals(BoardObjectType.EMPTY, result.resultingBoard[0][1])
     }
 
     @Test
@@ -66,6 +68,7 @@ class ObjectiveMoveScorerTest {
         assertEquals(1, result.applesCollected)
         assertEquals(2, result.appleFallDistance)
         assertEquals(1_400L, result.scoreBonus)
+        assertEquals(BoardObjectType.EMPTY, result.resultingBoard[1][1])
     }
 
     @Test
@@ -97,6 +100,7 @@ class ObjectiveMoveScorerTest {
         assertEquals(1, result.balloonBlocksTouched)
         assertEquals(0, result.markedTilesCollected)
         assertEquals(0L, result.scoreBonus)
+        assertEquals(BoardObjectType.BALLOON, result.resultingBoard[1][1])
     }
 
     @Test
