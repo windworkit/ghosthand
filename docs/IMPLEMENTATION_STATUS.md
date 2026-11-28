@@ -36,7 +36,7 @@ This document tracks what the objective-aware core does and, just as importantly
 - Retains unlabelled numeric tokens (including split ratios) for diagnostics instead of guessing their meaning.
 - Tracks explicitly labeled counter changes by objective type and approximate screen position. A progress/regression event is reported only after the new value appears in two separate captured frames, reducing one-frame OCR false positives.
 - Adds a reference-only mechanic catalogue for hearts, balloons, apples, and score. Public gameplay examples describe marked-tile collection, balloon blocks that persist until their release count is exhausted, and apples that must fall to the bottom.
-- Counter telemetry and mechanic metadata are diagnostic only: neither identifies board icons nor alters move scoring.
+- Counter telemetry and mechanic metadata do not identify board icons by themselves. The optional move scorer uses OCR counters only when the board already has supported typed cells; otherwise live solver scoring stays on the ordinary occupancy path.
 
 ### Objective move-impact foundation
 - Added a pure evaluator for hypothetical placements when cells have already been confidently labeled.
