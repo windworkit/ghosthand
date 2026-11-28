@@ -11,6 +11,7 @@ enum class BoardObjectType {
     EMPTY,
     ORDINARY_BLOCK,
     FLOWER,
+    HEART,
     BUTTERFLY,
     APPLE,
     BALLOON,
@@ -34,6 +35,7 @@ data class BoardCellObservation(
 /** Gameplay objectives that GhostHand may encounter in Woodoku Blast. */
 enum class ObjectiveType {
     FLOWER,
+    HEART,
     BUTTERFLY,
     APPLE,
     BALLOON,
@@ -43,6 +45,29 @@ enum class ObjectiveType {
     CRATE,
     SCORE,
     UNKNOWN
+}
+
+/**
+ * Reference-only mechanics gathered from public Woodoku Blast gameplay.
+ * These entries are not applied to move scoring because this app still lacks
+ * reliable pixel-level object recognition and live-version verification.
+ */
+enum class ObjectiveMechanic {
+    COLLECT_MARKED_TILE_ON_LINE_CLEAR,
+    BALLOON_BLOCK_REQUIRES_REPEATED_RELEASES,
+    APPLE_MUST_FALL_TO_BOTTOM,
+    REACH_SCORE_TARGET,
+    UNKNOWN
+}
+
+object ObjectiveMechanicCatalog {
+    fun forType(type: ObjectiveType): ObjectiveMechanic = when (type) {
+        ObjectiveType.HEART -> ObjectiveMechanic.COLLECT_MARKED_TILE_ON_LINE_CLEAR
+        ObjectiveType.BALLOON -> ObjectiveMechanic.BALLOON_BLOCK_REQUIRES_REPEATED_RELEASES
+        ObjectiveType.APPLE -> ObjectiveMechanic.APPLE_MUST_FALL_TO_BOTTOM
+        ObjectiveType.SCORE -> ObjectiveMechanic.REACH_SCORE_TARGET
+        else -> ObjectiveMechanic.UNKNOWN
+    }
 }
 
 /**
@@ -76,6 +101,7 @@ class ObjectiveReader {
 
     private val aliases = mapOf(
         ObjectiveType.FLOWER to setOf("flower", "flowers"),
+        ObjectiveType.HEART to setOf("heart", "hearts"),
         ObjectiveType.BUTTERFLY to setOf("butterfly", "butterflies"),
         ObjectiveType.APPLE to setOf("apple", "apples"),
         ObjectiveType.BALLOON to setOf("balloon", "balloons"),
