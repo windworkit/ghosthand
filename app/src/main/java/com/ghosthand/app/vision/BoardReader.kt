@@ -49,23 +49,54 @@ class BoardReader {
         val area: Int
     )
 
-    private val library: List<Piece> = listOf(
-        "X", "XX", "XXX", "XXXX", "XXXXX",
-        "XX/XX", "XX/XX/XX", "XXX/XXX", "XXX/XXX/XXX",
-        "X./XX", "XX/X.", "XX/.X", ".X/XX",
-        "X../X../XXX", "XXX/X../X..", "XXX/..X/..X", "..X/..X/XXX",
-        ".X/.X/XX", "XX/X./X.", "X./X./XXX", "XXX/.X/.X",
-        "XXX/.X/.X", ".X./XXX/.X.", ".X./XXX", "XXX/.X.",
-        ".XX/XX.", "XX./.XX", ".X./XXX/.X."
-    ).mapIndexed { i, s -> parseShape("p$i", s) }
+    /**
+     * Known orthogonally connected tray shapes. Each base shape is expanded
+     * into all four rotations and de-duplicated, so the library cannot drift
+     * out of sync (missing vertical lines, duplicated entries) as shapes are
+     * added. Matching is only used for naming; unknown connected shapes are
+     * still accepted by the tray reader.
+     */
+    internal val library: List<Piece> = run {
+        val bases = listOf(
+            "X", "XX", "XXX", "XXXX", "XXXXX",
+            "XX/XX", "XXX/XXX", "XXX/XXX/XXX",
+            "X./XX",
+            "X../X../XXX",
+            "X./X./XX", "X./XXX",
+            "XXX/.X./.X.", ".X./XXX/.X.", ".X./XXX",
+            ".XX/XX.", "XX./.XX"
+        )
+        val seen = HashSet<String>()
+        val shapes = mutableListOf<Pair<List<Pair<Int, Int>>, Pair<Int, Int>>>()
+        for (base in bases) {
+            var cells = parseCells(base)
+            repeat(4) {
+                val norm = normalize(cells)
+                val key = norm.sortedWith(compareBy({ it.second }, { it.first }))
+                    .joinToString(";") { "${it.first},${it.second}" }
+                if (seen.add(key)) {
+                    shapes += norm to ((norm.maxOf { it.first } + 1) to (norm.maxOf { it.second } + 1))
+                }
+                cells = cells.map { (x, y) -> -y to x } // rotate 90 degrees
+            }
+        }
+        shapes.mapIndexed { i, (cells, size) -> Piece("p$i", cells, size.first, size.second) }
+    }
 
-    private fun parseShape(name: String, s: String): Piece {
+    private fun parseCells(s: String): List<Pair<Int, Int>> {
         val rows = s.split("/")
+        require(rows.all { it.length == rows[0].length }) { "Ragged shape row in '$s'" }
         val cells = mutableListOf<Pair<Int, Int>>()
         rows.forEachIndexed { y, r ->
             r.forEachIndexed { x, c -> if (c == 'X') cells.add(x to y) }
         }
-        return Piece(name, cells, rows[0].length, rows.size)
+        return cells
+    }
+
+    private fun normalize(cells: List<Pair<Int, Int>>): List<Pair<Int, Int>> {
+        val minX = cells.minOf { it.first }
+        val minY = cells.minOf { it.second }
+        return cells.map { (x, y) -> (x - minX) to (y - minY) }
     }
 
         fun read(bmp: Bitmap, geo: GameGeometry.Geo): Reading? {
@@ -246,24 +277,11 @@ class BoardReader {
     }
 
     /**
-     * Reads the three puzzle pieces from horizontal/vertical color bands.
-     *
-     * On a reduced MediaProjection frame, neighboring tile faces can touch and
-     * connected-component analysis merges them into one large blob. Projection
-     * bands preserve the repeated tile spacing, so long runs are split back
-     * into individual cells before reconstructing each piece's shape.
-     */
-    /**
-     * Estimate the tray's plain background from its perimeter. Woodoku's
-     * backdrop is saturated blue, so a saturation-only mask mistakes the
-     * entire background for colored puzzle tiles. Sampling the clear border
-     * lets us demand a strong luminance contrast over the current game theme.
-     */
-    /**
-     * Estimate the tray backdrop as an RGB color, not a single luminance.
-     * Woodoku's blue backdrop can be brighter than its dark-red tray tiles,
-     * so a fixed brightness threshold makes those perfectly valid pieces
-     * disappear. Per-channel medians preserve the theme color for comparison.
+     * Estimate the tray backdrop from its perimeter as an RGB color, not a
+     * single luminance. Woodoku's backdrop is saturated blue (so a
+     * saturation-only mask mistakes it for tiles) and can be brighter than
+     * dark-red tray tiles (so a fixed brightness threshold loses them).
+     * Per-channel medians preserve the theme color for comparison.
      */
     private fun estimateTrayBackground(
         bmp: Bitmap, left: Int, top: Int, right: Int, bottom: Int
@@ -321,6 +339,14 @@ class BoardReader {
         return distance >= 42 && chroma >= 22
     }
 
+    /**
+     * Reads the three puzzle pieces from horizontal/vertical color bands.
+     *
+     * On a reduced MediaProjection frame, neighboring tile faces can touch and
+     * connected-component analysis merges them into one large blob. Projection
+     * bands preserve the repeated tile spacing, so long runs are split back
+     * into individual cells before reconstructing each piece's shape.
+     */
     private fun readTrayByBands(bmp: Bitmap, geo: GameGeometry.Geo): List<Piece>? {
         val boardBottom = geo.oy + geo.rows * geo.cell
         val y0 = (boardBottom + geo.cell * 0.45f).toInt().coerceAtLeast(0)
@@ -692,7 +718,4 @@ class BoardReader {
         val sorted = values.sorted()
         return sorted[sorted.size / 2]
     }
-
-    private fun luminance(pixel: Int): Int =
-        (Color.red(pixel) + Color.green(pixel) + Color.blue(pixel)) / 3
 }

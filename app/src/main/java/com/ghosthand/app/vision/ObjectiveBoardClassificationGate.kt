@@ -17,11 +17,8 @@ data class ObjectiveBoardClassification(
 
 object ObjectiveBoardClassificationGate {
 
-    private val supportedOccupiedTypes = setOf(
-        BoardObjectType.ORDINARY_BLOCK,
-        BoardObjectType.HEART,
-        BoardObjectType.APPLE
-    )
+    private val supportedOccupiedTypes =
+        com.ghosthand.app.solver.ObjectiveMoveScorer.LIVE_SUPPORTED_TYPES - BoardObjectType.EMPTY
 
     fun classify(
         observations: Array<Array<BoardCellObservation>>,

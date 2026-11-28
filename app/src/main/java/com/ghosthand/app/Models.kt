@@ -195,12 +195,38 @@ object ScriptStore {
             ?.sortedBy { it.name.lowercase() }
             ?: emptyList()
 
+    /**
+     * Script IDs double as file names. Only plain ID characters are allowed so
+     * a malformed ID can never point outside the scripts folder.
+     */
+    private val safeId = Regex("""[A-Za-z0-9-]{1,64}""")
+
+    private fun fileFor(id: String): File? =
+        if (safeId.matches(id)) File(dir, "$id.json") else null
+
     fun load(id: String): Script? = runCatching {
-        json.decodeFromString<Script>(File(dir, "$id.json").readText())
+        json.decodeFromString<Script>(fileFor(id)!!.readText())
     }.getOrNull()
 
-    fun save(s: Script) { File(dir, "${s.id}.json").writeText(json.encodeToString(s)) }
-    fun delete(id: String) { File(dir, "$id.json").delete() }
+    /**
+     * Saves are frequent (every editor change), so write to a temp file and
+     * rename it into place: an interrupted write can't leave a half-written,
+     * unreadable script that list() would silently drop.
+     */
+    fun save(s: Script) {
+        val target = fileFor(s.id) ?: return
+        val tmp = File(dir, "${s.id}.json.tmp")
+        tmp.writeText(json.encodeToString(s))
+        if (!tmp.renameTo(target)) {
+            target.delete()
+            if (!tmp.renameTo(target)) {
+                tmp.delete()
+                throw java.io.IOException("Could not save script ${s.id}")
+            }
+        }
+    }
+
+    fun delete(id: String) { fileFor(id)?.delete() }
 
     fun exportBackup(): String = ScriptBackupCodec.encode(list())
 

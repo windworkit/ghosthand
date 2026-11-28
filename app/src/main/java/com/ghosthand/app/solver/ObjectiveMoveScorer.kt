@@ -169,13 +169,21 @@ object ObjectiveMoveScorer {
         )
     }
 
-    private val SUPPORTED_BOARD_TYPES = setOf(
+    /**
+     * Types the live solver may act on. BALLOON is deliberately excluded:
+     * its release count is not modeled, so a board containing balloons must
+     * fall back to plain occupancy solving. BlockSolver and
+     * ObjectiveBoardClassificationGate both use this single set.
+     */
+    val LIVE_SUPPORTED_TYPES: Set<BoardObjectType> = setOf(
         BoardObjectType.EMPTY,
         BoardObjectType.ORDINARY_BLOCK,
         BoardObjectType.HEART,
-        BoardObjectType.APPLE,
-        BoardObjectType.BALLOON
+        BoardObjectType.APPLE
     )
+
+    /** Types evaluate() can simulate (offline analysis may include balloons). */
+    private val SUPPORTED_BOARD_TYPES = LIVE_SUPPORTED_TYPES + BoardObjectType.BALLOON
 
     private const val HEART_PROGRESS_WEIGHT = 1_000
     private const val APPLE_COLLECTION_WEIGHT = 1_200

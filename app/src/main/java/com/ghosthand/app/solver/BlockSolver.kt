@@ -27,6 +27,13 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
             lastDiagnostic = "tray returned 0 pieces"
             return null
         }
+        // The search tries every tray order (n!). Woodoku shows three pieces;
+        // more than MAX_TRAY_PIECES means the tray read is wrong, and solving
+        // it would stall the agent loop.
+        if (pieces.size > MAX_TRAY_PIECES) {
+            lastDiagnostic = "tray returned ${pieces.size} pieces; at most $MAX_TRAY_PIECES supported"
+            return null
+        }
         if (objectiveBoard != null) {
             if (objectiveBoard.size != cols || objectiveBoard.any { it.size != rows }) {
                 lastDiagnostic = "objective board dimensions do not match occupancy grid"
@@ -41,12 +48,7 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
                 lastDiagnostic = "objective labels disagree with board occupancy"
                 return null
             }
-            val supportedObjectiveTypes = setOf(
-                BoardObjectType.EMPTY,
-                BoardObjectType.ORDINARY_BLOCK,
-                BoardObjectType.HEART,
-                BoardObjectType.APPLE
-            )
+            val supportedObjectiveTypes = ObjectiveMoveScorer.LIVE_SUPPORTED_TYPES
             if (objectiveBoard.any { column ->
                     column.any { cell -> cell !in supportedObjectiveTypes }
                 }
@@ -255,5 +257,9 @@ fun place(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Array<B
             for (p in permutations(rest)) out.add(listOf(items[i]) + p)
         }
         return out
+    }
+
+    companion object {
+        const val MAX_TRAY_PIECES = 4
     }
 }

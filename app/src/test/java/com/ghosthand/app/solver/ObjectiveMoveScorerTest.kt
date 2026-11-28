@@ -65,7 +65,8 @@ class ObjectiveMoveScorerTest {
         )
 
         assertEquals(listOf(2), result.clearedRows)
-        assertEquals(listOf(2), result.clearedColumns)
+        // The single tile lands at (3,2), completing row 2 and column 3.
+        assertEquals(listOf(3), result.clearedColumns)
         assertEquals(2, result.markedTilesCollected)
         assertEquals(1_000L, result.scoreBonus)
     }
