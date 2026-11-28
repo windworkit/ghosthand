@@ -63,6 +63,7 @@ class Agent(
         onStatus("Waiting for screen…")
         stopOnFailedPlacement = false
         var hasReceivedFrame = false
+        var lastProcessedFrame: Bitmap? = null
         while (coroutineContext.isActive) {
             if (isPaused()) {
                 wasPaused = true
@@ -84,6 +85,14 @@ class Agent(
                 delay(300)
                 continue
             }
+            // ScreenCaster publishes a new Bitmap for each captured frame.
+            // Do not run OCR, board vision, or solver work repeatedly on the
+            // same screenshot while waiting for the next 400ms capture.
+            if (bmp === lastProcessedFrame) {
+                delay(80)
+                continue
+            }
+            lastProcessedFrame = bmp
 
             if (!hasReceivedFrame) {
                 hasReceivedFrame = true
