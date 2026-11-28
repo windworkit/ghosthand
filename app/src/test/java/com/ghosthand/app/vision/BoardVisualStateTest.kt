@@ -52,4 +52,19 @@ class BoardVisualStateTest {
 
         assertTrue(BoardReader().sameVisualState(first, second))
     }
+
+    @Test
+    fun gemSparkleJitterIsStillSettled() {
+        // Sparkle/quantization noise shifts a channel by one or two buckets.
+        val first = BoardReader.GridSnapshot(
+            occupied = Array(8) { x -> BooleanArray(8) { y -> x == 2 && y == 3 } },
+            colorSignatures = Array(8) { x -> IntArray(8) { y -> if (x == 2 && y == 3) 0x97D else 0x124 } },
+            backgroundSupport = 0.8f
+        )
+        val second = first.copy(
+            colorSignatures = Array(8) { x -> IntArray(8) { y -> if (x == 2 && y == 3) 0xA9E else 0x125 } }
+        )
+
+        assertTrue(BoardReader().sameVisualState(first, second))
+    }
 }

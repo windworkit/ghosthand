@@ -162,8 +162,31 @@ class BoardReader {
         return first.traySignature == second.traySignature &&
             first.occupied.indices.all { x ->
                 first.occupied[x].contentEquals(second.occupied[x]) &&
-                    first.colorSignatures[x].contentEquals(second.colorSignatures[x])
+                    first.colorSignatures[x].size == second.colorSignatures[x].size &&
+                    first.colorSignatures[x].indices.all { y ->
+                        similarSignature(first.colorSignatures[x][y], second.colorSignatures[x][y])
+                    }
             }
+    }
+
+    /**
+     * Signatures are RGB quantized to 16 levels per channel. Exact equality
+     * was too strict: Woodoku's gem sparkle animation and bucket-boundary
+     * jitter flip a channel by a bucket or two between frames, which made an
+     * unchanged board look like an objective transition and paused Smart Play.
+     * A real art change (apple appearing, balloon stage) moves a channel far
+     * more than SIGNATURE_TOLERANCE buckets.
+     */
+    private fun similarSignature(a: Int, b: Int): Boolean {
+        if (a == b) return true
+        val dr = abs(((a shr 8) and 0xF) - ((b shr 8) and 0xF))
+        val dg = abs(((a shr 4) and 0xF) - ((b shr 4) and 0xF))
+        val db = abs((a and 0xF) - (b and 0xF))
+        return maxOf(dr, dg, db) <= SIGNATURE_TOLERANCE
+    }
+
+    private companion object {
+        const val SIGNATURE_TOLERANCE = 2
     }
 
     /**
@@ -325,19 +348,11 @@ class BoardReader {
      * This detects dark red tiles as well as blue/pink/orange tiles and avoids
      * depending on absolute brightness, which changes across Woodoku themes.
      */
-    private fun isTrayTilePixel(pixel: Int, background: Int): Boolean {
-        val r = Color.red(pixel)
-        val g = Color.green(pixel)
-        val b = Color.blue(pixel)
-        val br = Color.red(background)
-        val bg = Color.green(background)
-        val bb = Color.blue(background)
-        val distance = kotlin.math.abs(r - br) +
-            kotlin.math.abs(g - bg) +
-            kotlin.math.abs(b - bb)
-        val chroma = maxOf(r, g, b) - minOf(r, g, b)
-        return distance >= 42 && chroma >= 22
-    }
+    private fun isTrayTilePixel(pixel: Int, background: Int): Boolean =
+        TrayPixelClassifier.isTile(
+            Color.red(pixel), Color.green(pixel), Color.blue(pixel),
+            Color.red(background), Color.green(background), Color.blue(background)
+        )
 
     /**
      * Reads the three puzzle pieces from horizontal/vertical color bands.
