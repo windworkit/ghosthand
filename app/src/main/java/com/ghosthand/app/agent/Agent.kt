@@ -19,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.coroutines.coroutineContext
 import kotlin.math.abs
+import kotlin.math.hypot
 
 class Agent(
     private val ocr: Ocr,
@@ -60,6 +61,11 @@ class Agent(
     private var sharedAdj: Adj? = null
 
     private fun remember(key: PlacementKey, adj: Adj) {
+        // A finger more than a few cells from the piece is a mis-read, not
+        // a real lift; storing it would throw every later drag off screen.
+        if (!adj.x.isFinite() || !adj.y.isFinite() ||
+            abs(adj.x) > MAX_LEARNED_ADJ_CELLS || abs(adj.y) > MAX_LEARNED_ADJ_CELLS
+        ) return
         learned[key] = adj
         sharedAdj = adj
     }
@@ -329,6 +335,8 @@ class Agent(
                 var fingerX = dropX
                 var fingerY = dropY
                 var since = SystemClock.elapsedRealtime() + FRAME_LAG_MS
+                var lastErr = Float.MAX_VALUE
+                var untrusted = false
                 for (fix in 0 until MAX_AIM_FIXES) {
                     val held = heldFrame(bmp, since) ?: break
                     val located = locateHeldPiece(bmp, held, geo, piece, grabX, grabY)
@@ -339,14 +347,44 @@ class Agent(
                     val ex = targetAnchorX - located.centerX
                     val ey = targetAnchorY - located.centerY
                     if (abs(ex) <= cell * AIM_TOLERANCE && abs(ey) <= cell * AIM_TOLERANCE) break
-                    val nx = (fingerX + ex) / reading.bmpW
-                    val ny = (fingerY + ey) / reading.bmpH
-                    if (!nx.isFinite() || !ny.isFinite() || nx !in 0.01f..0.99f || ny !in 0.01f..0.99f) break
+                    // A real lock follows the finger, so every fix must shrink
+                    // the error. If it doesn't, the locator latched onto
+                    // something static (a same-coloured tile, an apple) and
+                    // repeating the same push walks the piece off screen.
+                    val err = hypot(ex, ey)
+                    if (err > lastErr * AIM_MIN_IMPROVEMENT) {
+                        untrusted = true
+                        break
+                    }
+                    lastErr = err
+                    val newX = fingerX + ex
+                    val newY = fingerY + ey
+                    // Never wander more than a few cells from the planned drop.
+                    if (abs(newX - dropX) > cell * MAX_AIM_SHIFT_CELLS ||
+                        abs(newY - dropY) > cell * MAX_AIM_SHIFT_CELLS
+                    ) {
+                        untrusted = true
+                        break
+                    }
+                    val nx = newX / reading.bmpW
+                    val ny = newY / reading.bmpH
+                    if (!nx.isFinite() || !ny.isFinite() || nx !in 0.01f..0.99f || ny !in 0.01f..0.99f) {
+                        untrusted = true
+                        break
+                    }
                     onStatus("Aim fix ${"%.1f".format(ex / cell)},${"%.1f".format(ey / cell)} cells")
                     if (!motor.moveHeld(nx, ny, 250)) break
-                    fingerX += ex
-                    fingerY += ey
+                    fingerX = newX
+                    fingerY = newY
                     since = SystemClock.elapsedRealtime() + FRAME_LAG_MS
+                }
+                if (untrusted && (fingerX != dropX || fingerY != dropY)) {
+                    onStatus("Aim check unreliable; back to planned drop")
+                    if (motor.moveHeld(endNx, endNy, 250)) {
+                        fingerX = dropX
+                        fingerY = dropY
+                        delay(FRAME_LAG_MS)
+                    }
                 }
                 finalAdj = Adj((fingerX - targetAnchorX) / cell, (fingerY - targetAnchorY) / cell)
                 motor.releaseHeld()
@@ -579,6 +617,12 @@ class Agent(
         // Held-drag aim correction.
         const val MAX_AIM_FIXES = 3
         const val AIM_TOLERANCE = 0.15f // cells
+        // Each held-aim fix must cut the remaining error to at most this share.
+        const val AIM_MIN_IMPROVEMENT = 0.7f
+        // Max distance the finger may slide from the planned drop while aiming.
+        const val MAX_AIM_SHIFT_CELLS = 3.5f
+        // Learned finger-to-piece offsets beyond this are treated as mis-reads.
+        const val MAX_LEARNED_ADJ_CELLS = 5f
         const val FRAME_LAG_MS = 150L
         const val HELD_FRAME_TIMEOUT_MS = 1_200L
 
