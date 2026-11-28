@@ -227,16 +227,24 @@ class Agent(
             val target = counter.target ?: return@mapNotNull null
             if (target <= 0 || current !in 0..target) return@mapNotNull null
             ObjectiveGoal(counter.type, current, target)
+        }.groupBy { it.type }.map { (type, counters) ->
+            // Two UI counters for the same object type share one board-cell
+            // category, so combine their remaining totals instead of sending
+            // duplicate goal types into the solver.
+            ObjectiveGoal(
+                type,
+                counters.sumOf { it.current },
+                counters.sumOf { it.target }
+            )
         }
         // The objective simulator models only tile types whose line-clear or
-        // fall behavior is defined. If even one occupied cell is unclassified
-        // or has an unsupported special type, keep the existing Boolean-grid
-        // solver; never treat an unknown obstacle as an ordinary block.
+        // fall behavior is complete. Balloon blocks are not yet enabled because
+        // their remaining release counts are not tracked. If any occupied cell
+        // has an unsupported type, keep the existing Boolean-grid solver.
         val supportedBoardTypes = setOf(
             BoardObjectType.ORDINARY_BLOCK,
             BoardObjectType.HEART,
-            BoardObjectType.APPLE,
-            BoardObjectType.BALLOON
+            BoardObjectType.APPLE
         )
         val objectiveBoardReady = reading.boardCells.all { column ->
             column.all { cell ->
@@ -251,7 +259,7 @@ class Agent(
         onStatus(
             "Tray ${reading.pieces.size}: $traySummary; occupied=$unclassifiedOccupied; " +
                 "background=${(reading.backgroundSupport * 100).toInt()}%; goals=$objectiveSummary$objectiveProgressSuffix; " +
-                "objective scoring=${if (objectiveBoardReady) "armed" else "waiting for icon recognition"}"
+                "objective scoring=${if (objectiveBoardReady) "armed" else "waiting for supported icon labels"}"
         )
         val solver = BlockSolver(geo.cols, geo.rows)
         val moves = solver.solve(reading.grid, reading.pieces, objectiveBoard, objectiveGoals)
