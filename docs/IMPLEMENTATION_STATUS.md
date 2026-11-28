@@ -39,7 +39,7 @@ This document tracks what the objective-aware core does and, just as importantly
 - Counter telemetry and mechanic metadata do not identify board icons by themselves. The optional move scorer uses OCR counters only when the board already has supported typed cells; otherwise live solver scoring stays on the ordinary occupancy path.
 
 ### Objective move-impact foundation
-- Added a pure evaluator for hypothetical placements when cells have already been confidently labeled.
+- Added a pure evaluator for hypothetical placements when cells have already been confidently labeled. It rejects unclassified and unsupported board-object types instead of silently treating them as ordinary blocks.
 - Geometry calibration now supports both 8x8 and 9x9 boards and scores internal seam alignment before choosing a size.
 - Scores explicitly recognized heart/marked-tile collection on completed rows and columns.
 - Models apples surviving a line clear, falling through newly empty cells, and collecting only when they reach the bottom.
