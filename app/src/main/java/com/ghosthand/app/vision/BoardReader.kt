@@ -30,13 +30,15 @@ class BoardReader {
         // occupied cells remain explicit instead of being assumed ordinary.
         val boardCells: Array<Array<BoardCellObservation>>,
         val backgroundSupport: Float,
-        val colorSignatures: Array<IntArray>
+        val colorSignatures: Array<IntArray>,
+        val traySignature: String
     )
 
     data class GridSnapshot(
         val occupied: Array<BooleanArray>,
         val colorSignatures: Array<IntArray>,
-        val backgroundSupport: Float
+        val backgroundSupport: Float,
+        val traySignature: String? = null
     )
 
     private data class Blob(
@@ -72,8 +74,10 @@ class BoardReader {
         val signatures = Array(geo.cols) { x ->
             IntArray(geo.rows) { y -> boardCells[x][y].centerColorSignature }
         }
+        val traySignature = traySignature(tray, bmp.width, bmp.height)
         return Reading(
-            grid, tray, geo, bmp.width, bmp.height, boardCells, backgroundSupport, signatures
+            grid, tray, geo, bmp.width, bmp.height, boardCells, backgroundSupport,
+            signatures, traySignature
         )
     }
 
@@ -96,8 +100,24 @@ class BoardReader {
         val signatures = Array(geo.cols) { x ->
             IntArray(geo.rows) { y -> cells[x][y].centerColorSignature }
         }
-        return GridSnapshot(occupied, signatures, backgroundSupport)
+        val tray = readTray(bmp, geo)
+        val traySignature = tray?.let { traySignature(it, bmp.width, bmp.height) }
+        return GridSnapshot(occupied, signatures, backgroundSupport, traySignature)
     }
+
+    private fun traySignature(pieces: List<Piece>, width: Int, height: Int): String =
+        pieces.joinToString("|") { piece ->
+            val cells = piece.cells
+                .sortedWith(compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first })
+                .joinToString(";") { "${it.first},${it.second}" }
+            val grabX = if (piece.grabX.isFinite()) {
+                (piece.grabX / width * 100).roundToInt()
+            } else -1
+            val grabY = if (piece.grabY.isFinite()) {
+                (piece.grabY / height * 100).roundToInt()
+            } else -1
+            "${piece.w}x${piece.h}:$cells@${grabX},${grabY}"
+        }
 
     /**
      * A board transition is settled only when both its occupied-cell map and
@@ -108,10 +128,11 @@ class BoardReader {
         if (first.occupied.size != second.occupied.size ||
             first.colorSignatures.size != second.colorSignatures.size
         ) return false
-        return first.occupied.indices.all { x ->
-            first.occupied[x].contentEquals(second.occupied[x]) &&
-                first.colorSignatures[x].contentEquals(second.colorSignatures[x])
-        }
+        return first.traySignature == second.traySignature &&
+            first.occupied.indices.all { x ->
+                first.occupied[x].contentEquals(second.occupied[x]) &&
+                    first.colorSignatures[x].contentEquals(second.colorSignatures[x])
+            }
     }
 
     /**

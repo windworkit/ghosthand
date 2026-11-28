@@ -275,15 +275,20 @@ class Agent(
                 return true
             }
             if (gridsEqual(reading.grid, after.occupied)) {
-                if (colorSignaturesEqual(reading.colorSignatures, after.colorSignatures)) {
-                    continue // no observable board change: rejected; try the next probe
+                val beforeSnapshot = BoardReader.GridSnapshot(
+                    reading.grid,
+                    reading.colorSignatures,
+                    reading.backgroundSupport,
+                    reading.traySignature
+                )
+                if (reader.sameVisualState(beforeSnapshot, after)) {
+                    continue // no board or tray change: rejected; try the next probe
                 }
-                // A special objective can change its visual state without
-                // changing cell occupancy. Do not classify that as a rejected
-                // drop or repeat the same gesture; icon/state semantics are not
-                // confirmed yet, so pause for a fresh level read.
+                // A special objective or tray item can change without a
+                // corresponding occupancy transition. Do not call that a
+                // rejected drag or repeat it; pause for a fresh level read.
                 stopOnFailedPlacement = true
-                onStatus("Board changed visually without occupancy change — objective transition; paused")
+                onStatus("Board/tray changed without occupancy change — objective transition; paused")
                 return true
             }
 
