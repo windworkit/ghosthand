@@ -3,9 +3,15 @@ on:
   push:
   workflow_dispatch:
 
+# Avoid wasting runner time and producing artifacts from superseded commits.
+concurrency:
+  group: ghosthand-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
