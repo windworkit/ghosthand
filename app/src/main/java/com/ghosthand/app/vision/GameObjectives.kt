@@ -29,8 +29,18 @@ data class BoardCellObservation(
     val objectType: BoardObjectType,
     val luminance: Int,
     val backgroundDistance: Int,
-    val centerColorSignature: Int
-)
+    val centerColorSignature: Int,
+    // Independent confidence that objectType (not just occupancy) is correct.
+    // An occupied but unidentified cell must remain at 0 until a validated
+    // icon classifier supplies a measured confidence.
+    val objectConfidence: Float = 0f
+) {
+    init {
+        require(objectConfidence.isFinite() && objectConfidence in 0f..1f) {
+            "Object confidence must be finite and between 0 and 1"
+        }
+    }
+}
 
 /** Gameplay objectives that GhostHand may encounter in Woodoku Blast. */
 enum class ObjectiveType {
