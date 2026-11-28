@@ -154,6 +154,29 @@ class ObjectiveMoveScorerTest {
     }
 
     @Test
+    fun rejectsUnclassifiedOrUnsupportedBoardObjects() {
+        val board = emptyBoard()
+        board[1][1] = BoardObjectType.UNCLASSIFIED_OCCUPIED
+
+        var rejected = false
+        try {
+            ObjectiveMoveScorer.evaluate(board, single, 0, 0, emptyList())
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+
+        board[1][1] = BoardObjectType.FLOWER
+        rejected = false
+        try {
+            ObjectiveMoveScorer.evaluate(board, single, 0, 0, emptyList())
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+    }
+
+    @Test
     fun rejectsOverlapAndMalformedPlacement() {
         val board = emptyBoard()
         board[0][0] = BoardObjectType.ORDINARY_BLOCK
