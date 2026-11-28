@@ -363,8 +363,16 @@ class Agent(
                 var onTarget = false
                 var untrusted = false
                 for (fix in 0 until MAX_AIM_FIXES) {
-                    val held = heldFrame(bmp, since) ?: break
-                    val located = locateHeldPiece(bmp, held, geo, piece, grabX, grabY) ?: break
+                    // The game eases a held piece toward the finger, so a
+                    // frame grabbed mid-glide shows it still trailing behind.
+                    // Measuring that made the next fix fling it far past the
+                    // target. Only measure once it has stopped moving.
+                    val settled = locateSettled(bmp, since, geo, piece, grabX, grabY)
+                    if (settled === Settle.Moving) {
+                        untrusted = true
+                        break
+                    }
+                    val located = (settled as? Settle.At)?.where ?: break
                     seen = true
                     // How far did the piece move for the last finger move?
                     if (prevFingerX.isFinite()) {
@@ -394,8 +402,11 @@ class Agent(
                         break
                     }
                     lastErr = err
-                    val newX = fingerX + ex / curGainX
-                    val newY = fingerY + ey / curGainY
+                    // Go most of the way, never more than a few cells per
+                    // fix: an overshoot can't be seen once it's off the board.
+                    val stepCap = cell * MAX_FIX_STEP_CELLS
+                    val newX = fingerX + (AIM_DAMPING * ex / curGainX).coerceIn(-stepCap, stepCap)
+                    val newY = fingerY + (AIM_DAMPING * ey / curGainY).coerceIn(-stepCap, stepCap)
                     val nx = newX / reading.bmpW
                     val ny = newY / reading.bmpH
                     if (!nx.isFinite() || !ny.isFinite() || nx !in 0.01f..0.99f || ny !in 0.01f..0.99f) {
@@ -571,6 +582,43 @@ class Agent(
         return null
     }
 
+    private sealed class Settle {
+        data class At(val where: FloatingPieceLocator.Located) : Settle()
+        object Moving : Settle()
+        object NotFound : Settle()
+    }
+
+    /**
+     * Locate the held piece once two consecutive frames agree on where it is.
+     * [Settle.Moving] if it was seen but never held still before the timeout.
+     */
+    private suspend fun locateSettled(
+        before: Bitmap, sinceMs: Long, geo: GameGeometry.Geo,
+        piece: BoardReader.Piece, grabX: Float, grabY: Float
+    ): Settle {
+        val deadline = SystemClock.elapsedRealtime() + SETTLE_TIMEOUT_MS
+        var since = sinceMs
+        var last: FloatingPieceLocator.Located? = null
+        var everSeen = false
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val held = heldFrame(before, since) ?: break
+            since = AgentBus.lastFrameAtMs + 1
+            val now = locateHeldPiece(before, held, geo, piece, grabX, grabY)
+            if (now == null) {
+                last = null
+                continue
+            }
+            everSeen = true
+            val prev = last
+            if (prev != null &&
+                abs(now.centerX - prev.centerX) <= geo.cell * SETTLE_TOLERANCE &&
+                abs(now.centerY - prev.centerY) <= geo.cell * SETTLE_TOLERANCE
+            ) return Settle.At(now)
+            last = now
+        }
+        return if (everSeen) Settle.Moving else Settle.NotFound
+    }
+
     private fun locateHeldPiece(
         before: Bitmap, held: Bitmap, geo: GameGeometry.Geo,
         piece: BoardReader.Piece, grabX: Float, grabY: Float
@@ -670,6 +718,13 @@ class Agent(
         // Before the piece speed is known, the first stop assumes the piece
         // may move this many times as far as the finger, so it stops short.
         const val CAUTIOUS_GAIN = 1.6f
+        // Each fix covers this share of the measured error (no overshoot).
+        const val AIM_DAMPING = 0.85f
+        // Largest finger move a single fix may make.
+        const val MAX_FIX_STEP_CELLS = 2.5f
+        // Held piece counts as still when two frames agree within this.
+        const val SETTLE_TOLERANCE = 0.15f // cells
+        const val SETTLE_TIMEOUT_MS = 1_500L
         // A finger move must be at least this long to measure piece speed.
         const val GAIN_MIN_MOVE_CELLS = 0.4f
         const val MIN_GAIN = 0.5f
