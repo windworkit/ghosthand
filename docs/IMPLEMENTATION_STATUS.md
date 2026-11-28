@@ -29,11 +29,13 @@ This document tracks what the objective-aware core does and, just as importantly
 - Rejects ambiguous/disconnected tray detections instead of dropping cells from the detected mask.
 - Keeps exact cell masks and pickup anchors for the solver and drag planner.
 
-### Objective OCR groundwork
+### Objective OCR and progress telemetry
 - Preserves both token-level and line-level OCR results.
 - Recognizes explicit textual labels for flowers, butterflies, apples, balloons, bombs, fireworks, gems, crates/boxes, and score.
 - Parses explicit counters such as `2/5` when they appear in the same OCR line as a recognized objective.
 - Retains unlabelled numeric tokens (including split ratios) for diagnostics instead of guessing their meaning.
+- Tracks explicitly labeled counter changes by objective type and approximate screen position. A progress/regression event is reported only after the new value appears in two separate captured frames, reducing one-frame OCR false positives.
+- Counter telemetry is diagnostic only: it does not yet identify icons, infer special-object mechanics, or alter move scoring.
 
 ### Script backup and restore
 - Export scripts into a portable, versioned JSON backup through Android's document picker.
@@ -44,7 +46,7 @@ This document tracks what the objective-aware core does and, just as importantly
 
 ### Automated tests and CI
 - Runs JVM unit tests before building the debug APK.
-- Tests solver line clearing, piece masks, board bounds, shape connectivity, objective-label parsing, and board-color classification.
+- Tests solver line clearing, piece masks, board bounds, shape connectivity, objective-label parsing, debounced objective-counter progress, and board-color classification.
 - Caches a stable CI debug signing key and increments Android `versionCode` using the GitHub Actions run number.
 
 ## Not implemented yet
