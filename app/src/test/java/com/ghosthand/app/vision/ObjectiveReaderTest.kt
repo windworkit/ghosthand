@@ -36,6 +36,43 @@ class ObjectiveReaderTest {
     }
 
     @Test
+    fun recognizesBombFireworkCrateAndScoreLabels() {
+        val labels = listOf(
+            "Bombs 1/3",
+            "Fireworks 0/2",
+            "Crates 4/6",
+            "Score 1200"
+        )
+        val lines = labels.mapIndexed { index, label ->
+            OcrWord(label, 0.5f, 0.12f + index * 0.1f, 0.25f, 0.04f)
+        }
+
+        val snapshot = ObjectiveReader().read(emptyList(), lines, 720, 1280)
+
+        assertEquals(
+            listOf(
+                ObjectiveType.BOMB,
+                ObjectiveType.FIREWORK,
+                ObjectiveType.CRATE,
+                ObjectiveType.SCORE
+            ),
+            snapshot.counters.map { it.type }
+        )
+        assertEquals(listOf(3, 2, 6, null), snapshot.counters.map { it.target })
+    }
+
+    @Test
+    fun doesNotMatchObjectiveNamesAsSubstrings() {
+        val lines = listOf(
+            OcrWord("bombastic bonus", 0.5f, 0.2f, 0.3f, 0.04f),
+            OcrWord("fireworks display", 0.5f, 0.3f, 0.3f, 0.04f)
+        )
+        val snapshot = ObjectiveReader().read(emptyList(), lines, 720, 1280)
+
+        assertTrue(snapshot.counters.isEmpty())
+    }
+
+    @Test
     fun keepsSameTypeObjectivesAtDifferentPositionsOnOneRow() {
         val lines = listOf(
             OcrWord("Flowers 1/4", 0.20f, 0.15f, 0.12f, 0.04f),
