@@ -33,7 +33,7 @@ class ObjectiveMoveScorerTest {
     }
 
     @Test
-    fun countsMarkedTileOnlyOnceWhenRowAndColumnClearTogether() {
+    fun scoresMarkedTilesAcrossSimultaneousRowAndColumnClear() {
         val board = emptyBoard()
         for (x in 0 until 4) if (x != 3) board[x][2] = BoardObjectType.ORDINARY_BLOCK
         for (y in 0 until 4) if (y != 2) board[3][y] = BoardObjectType.ORDINARY_BLOCK
@@ -41,7 +41,7 @@ class ObjectiveMoveScorerTest {
         board[3][1] = BoardObjectType.HEART
 
         val result = ObjectiveMoveScorer.evaluate(
-            board, single, 2, 2,
+            board, single, 3, 2,
             listOf(ObjectiveGoal(ObjectiveType.HEART, current = 0, target = 1))
         )
 
@@ -103,7 +103,6 @@ class ObjectiveMoveScorerTest {
     fun unknownObjectiveTypesDoNotReceiveGuessedProgressBonuses() {
         val board = emptyBoard()
         board[1][1] = BoardObjectType.FLOWER
-        board[0][1] = BoardObjectType.ORDINARY_BLOCK
         board[2][1] = BoardObjectType.ORDINARY_BLOCK
         board[3][1] = BoardObjectType.ORDINARY_BLOCK
 
