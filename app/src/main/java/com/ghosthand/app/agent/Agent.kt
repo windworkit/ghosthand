@@ -3,8 +3,13 @@ package com.ghosthand.app.agent
 
 import android.graphics.Bitmap
 import com.ghosthand.app.solver.BlockSolver
+import com.ghosthand.app.solver.ObjectiveGoal
 import com.ghosthand.app.vision.BoardReader
 import com.ghosthand.app.vision.GameGeometry
+import com.ghosthand.app.vision.BoardObjectType
+import com.ghosthand.app.vision.ObjectiveReader
+import com.ghosthand.app.vision.ObjectiveProgressTracker
+import com.ghosthand.app.vision.ObjectiveBoardClassificationGate
 import com.ghosthand.app.vision.Ocr
 import com.ghosthand.app.vision.ScreenClassifier
 import com.ghosthand.app.vision.ScreenState
@@ -23,6 +28,8 @@ class Agent(
 ) {
     private var geoCache: GameGeometry.Geo? = null
     private val reader = BoardReader()
+    private val objectiveReader = ObjectiveReader()
+    private val objectiveProgressTracker = ObjectiveProgressTracker()
     // Stop blind retries when the game did not accept a placement.
     private var stopOnFailedPlacement = false
     private var wasPaused = false
@@ -39,13 +46,28 @@ class Agent(
      * actually land (see [findLanding]) and remembered per piece size.
      */
     private data class Adj(val x: Float, val y: Float)
+    private data class PlacementKey(val shape: String, val anchorX: Int, val anchorY: Int)
 
-    private val learned = HashMap<Pair<Int, Int>, Adj>()
+    // Calibration belongs to an exact shape and pickup anchor. Width/height
+    // alone are not enough: L, T and zig-zag pieces can share a bounding box.
+    private val learned = HashMap<PlacementKey, Adj>()
+
+    private fun placementKey(piece: BoardReader.Piece): PlacementKey {
+        val canonicalCells = piece.cells
+            .sortedWith(compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first })
+            .joinToString(";") { "${it.first},${it.second}" }
+        return PlacementKey(
+            "${piece.w}x${piece.h}:$canonicalCells",
+            piece.anchorCellX,
+            piece.anchorCellY
+        )
+    }
 
     suspend fun loop(frame: () -> Bitmap?) {
         onStatus("Waiting for screen…")
         stopOnFailedPlacement = false
         var hasReceivedFrame = false
+        var lastProcessedFrame: Bitmap? = null
         while (coroutineContext.isActive) {
             if (isPaused()) {
                 wasPaused = true
@@ -67,6 +89,14 @@ class Agent(
                 delay(300)
                 continue
             }
+            // ScreenCaster publishes a new Bitmap for each captured frame.
+            // Do not run OCR, board vision, or solver work repeatedly on the
+            // same screenshot while waiting for the next 400ms capture.
+            if (bmp === lastProcessedFrame) {
+                delay(80)
+                continue
+            }
+            lastProcessedFrame = bmp
 
             if (!hasReceivedFrame) {
                 hasReceivedFrame = true
@@ -77,6 +107,11 @@ class Agent(
             // A captured app window or a stale inner/cover-panel capture can
             // be letterboxed inside the projection surface. Never attempt a
             // gesture unless the frame aspect matches the active touch display.
+            if (!motor.isFrameFresh()) {
+                onStatus("Waiting for a fresh screen frame…")
+                delay(250)
+                continue
+            }
             if (!motor.isFrameAligned(bmp.width, bmp.height)) {
                 stopOnFailedPlacement = true
                 onStatus("Capture/display mismatch — stopped safely")
@@ -120,14 +155,20 @@ class Agent(
         if (geo == null) {
             onStatus("Grid: scanning")
             geo = GameGeometry.calibrate(bmp)
-            if (geo == null) {
-                onStatus("Grid: no lines")
+            if (geo == null || !isGeometryUsable(geo, bmp)) {
+                geoCache = null
+                onStatus("Grid: no valid 8x8/9x9 board")
                 return false
             }
             geoCache = geo
             verifyFailures = 0
             onStatus("Grid: ${geo.cols}x${geo.rows} found")
             delay(300)
+        } else if (!isGeometryUsable(geo, bmp)) {
+            geoCache = null
+            verifyFailures = 0
+            onStatus("Grid: outside capture — recalibrating")
+            return false
         } else if (verify(geo, bmp)) {
             verifyFailures = 0
         } else if (++verifyFailures >= 2) {
@@ -144,10 +185,74 @@ class Agent(
             // Tray is empty/animating between sets; keep the grid calibration.
             return false
         }
-        val traySummary = reading.pieces.joinToString(", ") { "${it.w}x${it.h}" }
-        onStatus("Tray ${reading.pieces.size}: $traySummary")
+        val traySummary = reading.pieces.joinToString(", ") { "${it.w}x${it.h}/${it.cells.size}" }
+        val objectiveSnapshot = objectiveReader.read(
+            classifier.lastWords, classifier.lastLines, bmp.width, bmp.height
+        )
+        val objectiveSummary = objectiveSnapshot.counters.joinToString(", ") {
+            "${it.type.name.lowercase()} ${it.current ?: "?"}/${it.target ?: "?"}"
+        }.ifEmpty {
+            if (objectiveSnapshot.unclassifiedNumericTokens.isNotEmpty()) {
+                "unlabeled counters: ${objectiveSnapshot.unclassifiedNumericTokens.joinToString("/")}"
+            } else {
+                "no readable objective text"
+            }
+        }
+        // A goal counter is treated as progress only after the same value is
+        // observed on two separate captured frames; a one-frame OCR glitch
+        // must not influence diagnostics or any future move-learning logic.
+        val objectiveProgressUpdate = objectiveProgressTracker.observe(objectiveSnapshot)
+        val progressSummary = objectiveProgressUpdate.increases.joinToString(", ") {
+            "${it.type.name.lowercase()} +${it.amount} (${it.current}/${it.target})"
+        }
+        val regressionSummary = objectiveProgressUpdate.decreases.joinToString(", ") {
+            "${it.type.name.lowercase()} ${it.previous}→${it.current} (not scored)"
+        }
+        val objectiveProgressSuffix = when {
+            progressSummary.isNotEmpty() -> "; progress=$progressSummary"
+            regressionSummary.isNotEmpty() -> "; counter reset=$regressionSummary"
+            else -> ""
+        }
+        if (reading.backgroundSupport < MIN_BACKGROUND_SUPPORT) {
+            stopOnFailedPlacement = true
+            onStatus(
+                "Board colors uncertain (${(reading.backgroundSupport * 100).toInt()}% background samples) — paused"
+            )
+            return true
+        }
+        val unclassifiedOccupied = reading.boardCells.sumOf { column ->
+            column.count { it.objectType == BoardObjectType.UNCLASSIFIED_OCCUPIED }
+        }
+        val objectiveGoals = objectiveSnapshot.counters.mapNotNull { counter ->
+            val current = counter.current ?: return@mapNotNull null
+            val target = counter.target ?: return@mapNotNull null
+            if (target <= 0 || current !in 0..target) return@mapNotNull null
+            ObjectiveGoal(counter.type, current, target)
+        }.groupBy { it.type }.map { (type, counters) ->
+            // Two UI counters for the same object type share one board-cell
+            // category, so combine their remaining totals instead of sending
+            // duplicate goal types into the solver.
+            ObjectiveGoal(
+                type,
+                counters.sumOf { it.current },
+                counters.sumOf { it.target }
+            )
+        }
+        // The objective simulator requires a supported semantic label AND
+        // at least 92% object-classification confidence for every occupied cell.
+        // Occupancy alone never qualifies as an ordinary block.
+        val objectiveClassification = ObjectiveBoardClassificationGate.classify(
+            reading.boardCells
+        )
+        val objectiveBoard = objectiveClassification.board
+        val objectiveBoardReady = objectiveClassification.isReady
+        onStatus(
+            "Tray ${reading.pieces.size}: $traySummary; occupied=$unclassifiedOccupied; " +
+                "background=${(reading.backgroundSupport * 100).toInt()}%; goals=$objectiveSummary$objectiveProgressSuffix; " +
+                "objective scoring=${if (objectiveBoardReady) "armed" else objectiveClassification.rejectionReason}"
+        )
         val solver = BlockSolver(geo.cols, geo.rows)
-        val moves = solver.solve(reading.grid, reading.pieces)
+        val moves = solver.solve(reading.grid, reading.pieces, objectiveBoard, objectiveGoals)
 
         if (moves == null) {
             onStatus("No fit: ${solver.lastDiagnostic}")
@@ -158,15 +263,23 @@ class Agent(
         // One move per fresh board read; re-solve after each placement.
         val m = moves.first()
         val piece = reading.pieces[m.pieceIdx]
-        val key = piece.w to piece.h
+        val key = placementKey(piece)
         val grabX = if (piece.grabX.isFinite()) piece.grabX else traySlot(reading, m.pieceIdx).first
         val grabY = if (piece.grabY.isFinite()) piece.grabY else traySlot(reading, m.pieceIdx).second
 
-        // Intended location: center of the piece's bounding box on the board.
+        // Aim the tile actually grabbed at its destination cell. The piece's
+        // bounding-box center is not the pickup point for asymmetric shapes.
         val cell = geo.cell.toFloat()
-        val centerX = geo.ox + (m.x + piece.w / 2f) * cell
-        val centerY = geo.oy + (m.y + piece.h / 2f) * cell
-        val base = adjFor(piece)
+        val anchorX = piece.anchorCellX.coerceIn(0, piece.w - 1)
+        val anchorY = piece.anchorCellY.coerceIn(0, piece.h - 1)
+        if (piece.cells.none { it.first == anchorX && it.second == anchorY }) {
+            stopOnFailedPlacement = true
+            onStatus("Invalid pickup anchor — paused")
+            return true
+        }
+        val targetAnchorX = geo.ox + (m.x + anchorX + 0.5f) * cell
+        val targetAnchorY = geo.oy + (m.y + anchorY + 0.5f) * cell
+        val base = adjFor(key)
 
         // attempt 0 uses the learned offset. If the game rejects the drop (grid
         // unchanged) the same move is retried with the aim nudged, so a wrong
@@ -175,15 +288,27 @@ class Agent(
         for (attempt in 0 until totalAttempts) {
             val probe = if (attempt == 0) 0f to 0f else PROBES[attempt - 1]
             val adj = Adj(base.x + probe.first, base.y + probe.second)
-            val dropX = (centerX + adj.x * cell).coerceIn(2f, reading.bmpW - 3f)
-            val dropY = (centerY + adj.y * cell).coerceIn(2f, reading.bmpH - 3f)
+            val dropX = targetAnchorX + adj.x * cell
+            val dropY = targetAnchorY + adj.y * cell
+            val startNx = grabX / reading.bmpW
+            val startNy = grabY / reading.bmpH
+            val endNx = dropX / reading.bmpW
+            val endNy = dropY / reading.bmpH
 
-            onStatus("Plan p${m.pieceIdx + 1} -> c${m.x + 1} r${m.y + 1} #${attempt + 1}")
-            motor.drag(
-                grabX / reading.bmpW, grabY / reading.bmpH,
-                dropX / reading.bmpW, dropY / reading.bmpH,
-                ms = 1000
-            )
+            // Never clamp an invalid destination to an image edge.
+            if (listOf(startNx, startNy, endNx, endNy).any { !it.isFinite() || it !in 0.01f..0.99f }) {
+                stopOnFailedPlacement = true
+                onStatus("Drag coordinates outside capture — paused")
+                return true
+            }
+
+            onStatus("Plan p${m.pieceIdx + 1} -> c${m.x + 1} r${m.y + 1} #${attempt + 1}; goals=$objectiveSummary")
+            val dispatched = motor.drag(startNx, startNy, endNx, endNy, ms = 1000)
+            if (!dispatched) {
+                stopOnFailedPlacement = true
+                onStatus("Android cancelled/rejected drag — paused")
+                return true
+            }
             motor.idle(700)
 
             val after = settledGrid(frame, geo)
@@ -192,11 +317,31 @@ class Agent(
                 onStatus("Can't re-read board — paused")
                 return true
             }
-            if (gridsEqual(reading.grid, after)) continue // rejected; nudge and retry
+            if (gridsEqual(reading.grid, after.occupied)) {
+                val beforeSnapshot = BoardReader.GridSnapshot(
+                    reading.grid,
+                    reading.colorSignatures,
+                    reading.backgroundSupport,
+                    reading.traySignature
+                )
+                if (reader.sameVisualState(beforeSnapshot, after)) {
+                    continue // no board or tray change: rejected; try the next probe
+                }
+                // A special objective or tray item can change without a
+                // corresponding occupancy transition. Do not call that a
+                // rejected drag or repeat it; pause for a fresh level read.
+                stopOnFailedPlacement = true
+                onStatus("Board/tray changed without occupancy change — objective transition; paused")
+                return true
+            }
 
-            val landing = findLanding(solver, reading.grid, after, piece, m.x, m.y, geo.cols, geo.rows)
+            val landing = findLanding(
+                solver, reading.grid, after.occupied, piece, m.x, m.y, geo.cols, geo.rows
+            )
             if (landing == null) {
-                onStatus("Placed (landing unclear)")
+                stopOnFailedPlacement = true
+                onStatus("Board changed; landing uncertain — paused")
+                return true
             } else if (landing.first == 0 && landing.second == 0) {
                 learned[key] = adj
                 onStatus("Placed on target")
@@ -214,32 +359,9 @@ class Agent(
         return true
     }
 
-    /** Learned aim for this piece size, or a prediction from other sizes, or the starting guess. */
-    private fun adjFor(piece: BoardReader.Piece): Adj {
-        learned[piece.w to piece.h]?.let { return it }
-        if (learned.isEmpty()) return Adj(PRIOR_X, PRIOR_Y)
-        val obs = learned.entries.toList()
-        return Adj(
-            predictAxis(obs.map { it.key.first to it.value.x }, piece.w),
-            predictAxis(obs.map { it.key.second to it.value.y }, piece.h)
-        )
-    }
-
-    /**
-     * Two simple models for how the game offsets a piece from the finger on one
-     * axis: constant from the piece center, or constant from its far edge (so
-     * the offset grows with piece size). Use whichever fits what was observed.
-     */
-    private fun predictAxis(obs: List<Pair<Int, Float>>, dim: Int): Float {
-        val center = obs.map { it.second }
-        val edge = obs.map { it.second - it.first / 2f }
-        fun spread(v: List<Float>): Float = (v.maxOrNull() ?: 0f) - (v.minOrNull() ?: 0f)
-        return if (obs.size >= 2 && spread(edge) + 0.15f < spread(center)) {
-            edge.average().toFloat() + dim / 2f
-        } else {
-            center.average().toFloat()
-        }
-    }
+    /** Use calibration only for this exact shape and pickup anchor. */
+    private fun adjFor(key: PlacementKey): Adj =
+        learned[key] ?: Adj(PRIOR_X, PRIOR_Y)
 
     /**
      * Find the (dx, dy) shift, relative to the intended top-left cell, at which
@@ -256,38 +378,50 @@ class Agent(
         cols: Int,
         rows: Int
     ): Pair<Int, Int>? {
-        var best: Pair<Int, Int>? = null
-        var bestDist = Int.MAX_VALUE
+        var match: Pair<Int, Int>? = null
+        var matchCount = 0
         for (dx in -5..5) for (dy in -5..5) {
             val x = intendedX + dx
             val y = intendedY + dy
             if (x < 0 || y < 0 || x + piece.w > cols || y + piece.h > rows) continue
             if (!solver.canFit(before, piece, x, y)) continue
             if (!gridsEqual(solver.place(before, piece, x, y), after)) continue
-            val dist = abs(dx) + abs(dy)
-            if (dist < bestDist) {
-                bestDist = dist
-                best = dx to dy
+
+            matchCount++
+            if (matchCount > 1) {
+                // More than one offset explains the same screenshot. Do not
+                // learn a calibration from an ambiguous board transition.
+                return null
             }
+            match = dx to dy
         }
-        return best
+        return match
     }
 
     /** Re-read the board until two consecutive reads agree (animations finished). */
-    private suspend fun settledGrid(frame: () -> Bitmap?, geo: GameGeometry.Geo): Array<BooleanArray>? {
-        var previous: Array<BooleanArray>? = null
-        var latest: Array<BooleanArray>? = null
+    private suspend fun settledGrid(
+        frame: () -> Bitmap?,
+        geo: GameGeometry.Geo
+    ): BoardReader.GridSnapshot? {
+        var previous: BoardReader.GridSnapshot? = null
         for (i in 0 until 8) {
             delay(450)
             val bmp = frame() ?: continue
-            val grid = reader.readGrid(bmp, geo)
+            if (!motor.isFrameFresh() || !motor.isFrameAligned(bmp.width, bmp.height)) return null
+            val current = reader.readGridSnapshot(bmp, geo)
+            if (current.backgroundSupport < MIN_BACKGROUND_SUPPORT) return null
             val prev = previous
-            if (prev != null && gridsEqual(prev, grid)) return grid
-            previous = grid
-            latest = grid
+            if (prev != null && boardSnapshotsEqual(prev, current)) return current
+            previous = current
         }
-        return latest
+        // An unstable board is not a trustworthy placement result.
+        return null
     }
+
+    private fun boardSnapshotsEqual(
+        first: BoardReader.GridSnapshot,
+        second: BoardReader.GridSnapshot
+    ): Boolean = reader.sameVisualState(first, second)
 
     private fun fmt(v: Int): String = if (v > 0) "+$v" else v.toString()
 
@@ -306,6 +440,19 @@ class Agent(
         return a.indices.all { x ->
             a[x].size == b[x].size && a[x].indices.all { y -> a[x][y] == b[x][y] }
         }
+    }
+
+    /**
+     * Never sample a clamped/partial board. Clamping would cause several
+     * logical cells to read pixels from the same screen edge and could make a
+     * false empty-cell map look internally consistent.
+     */
+    private fun isGeometryUsable(geo: GameGeometry.Geo, bmp: Bitmap): Boolean {
+        if (geo.cols !in 8..9 || geo.rows != geo.cols || geo.cell < 6) return false
+        if (geo.ox < 0 || geo.oy < 0) return false
+        val right = geo.ox + geo.cols * geo.cell
+        val bottom = geo.oy + geo.rows * geo.cell
+        return right <= bmp.width && bottom <= bmp.height
     }
 
     /**
@@ -338,6 +485,8 @@ class Agent(
             android.graphics.Color.green(c) + android.graphics.Color.blue(c)) / 3
 
     private companion object {
+        const val MIN_BACKGROUND_SUPPORT = 0.35f
+
         // Starting guess: finger about two cells below the piece's center
         // (the game lifts the dragged piece above the finger). Replaced by
         // what is observed after the first placement.

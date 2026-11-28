@@ -27,6 +27,7 @@ import android.widget.Toast
 import com.ghosthand.app.agent.Agent
 import com.ghosthand.app.agent.AdSentinel
 import com.ghosthand.app.agent.AgentBus
+import com.ghosthand.app.agent.AgentCaptureService
 import com.ghosthand.app.agent.Motor
 import com.ghosthand.app.vision.Ocr
 import com.ghosthand.app.vision.ScreenClassifier
@@ -73,10 +74,11 @@ class AutoPlayerService : AccessibilityService() {
 
     override fun onServiceConnected() { super.onServiceConnected(); instance = this }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
-    override fun onInterrupt() {}
+    override fun onInterrupt() { stop() }
 
     override fun onDestroy() {
         instance = null
+        stopCaptureService()
         runCatching { crossFrame?.let { wm().removeView(it) } }
         runCatching { pillFrame?.let { wm().removeView(it) } }
         crossFrame = null; pillFrame = null
@@ -110,7 +112,23 @@ class AutoPlayerService : AccessibilityService() {
         }
     }
 
-    fun stop() { playJob?.cancel() }
+    private fun stopCaptureService() {
+        runCatching { stopService(Intent(this, AgentCaptureService::class.java)) }
+    }
+
+    fun stop() {
+        playJob?.cancel()
+        // Smart Play owns the screen-capture session. Stopping automation must
+        // also stop the foreground projection service so it does not keep
+        // recording the screen after the user has pressed Stop.
+        stopCaptureService()
+    }
+
+    /** Cancel automation after projection has already ended; do not stop the
+     * capture service again from inside its own shutdown callback. */
+    fun onCaptureStopped() {
+        playJob?.cancel()
+    }
 
     fun togglePause() {
         paused.value = !paused.value
@@ -188,17 +206,21 @@ class AutoPlayerService : AccessibilityService() {
         dispatch(path, st.ms)
     }
 
-    private suspend fun dispatch(path: Path, durationMs: Long) {
+    private suspend fun dispatch(path: Path, durationMs: Long): Boolean {
         val dur = durationMs.coerceIn(40L, 60_000L)
         return suspendCancellableCoroutine { cont ->
             val gesture = GestureDescription.Builder()
                 .addStroke(GestureDescription.StrokeDescription(path, 0, dur))
                 .build()
-            val ok = dispatchGesture(gesture, object : GestureResultCallback() {
-                override fun onCompleted(g: GestureDescription?) { if (cont.isActive) cont.resume(Unit) }
-                override fun onCancelled(g: GestureDescription?) { if (cont.isActive) cont.resume(Unit) }
+            val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) {
+                    if (cont.isActive) cont.resume(true)
+                }
+                override fun onCancelled(g: GestureDescription?) {
+                    if (cont.isActive) cont.resume(false)
+                }
             }, null)
-            if (!ok && cont.isActive) cont.resume(Unit)
+            if (!accepted && cont.isActive) cont.resume(false)
         }
     }
 
@@ -258,7 +280,7 @@ class AutoPlayerService : AccessibilityService() {
                 val j = 5f * resources.displayMetrics.density
                 dispatch(Path().apply { moveTo(x * w + off(j), y * h + off(j)) }, 48 + rnd(40))
             }
-            override suspend fun drag(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long) {
+            override suspend fun drag(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long): Boolean {
                 val (w, h) = screen()
 
                 // Smart Play relies on cell-level placement. Random offsets or
@@ -273,9 +295,12 @@ class AutoPlayerService : AccessibilityService() {
                     lineTo(endX, endY)
                 }
 
-                dispatch(path, ms.coerceIn(500, 1800))
+                val completed = dispatch(path, ms.coerceIn(500, 1800))
                 delay(220)
+                return completed
             }
+            override fun isFrameFresh(): Boolean = AgentBus.isFrameFresh()
+
             override fun isFrameAligned(frameWidth: Int, frameHeight: Int): Boolean {
                 if (frameWidth <= 0 || frameHeight <= 0) return false
                 val (displayWidth, displayHeight) = screen()
@@ -305,6 +330,7 @@ class AutoPlayerService : AccessibilityService() {
             } catch (e: Exception) {
                 statusText.value = "Smart Play error: ${e.message ?: e.javaClass.simpleName}"
                 android.util.Log.e("GhostHand", "Smart Play agent crashed", e)
+                stopCaptureService()
             } finally {
                 isRunning.value = false
                 paused.value = false

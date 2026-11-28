@@ -34,13 +34,20 @@ class ScreenCaster(private val ctx: Context) {
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
     private var lastFrameAt = 0L
+    private var captureWidth = 0
+    private var captureHeight = 0
 
     @Synchronized
-    fun start(resultCode: Int, data: Intent, onFrame: (Bitmap) -> Unit) {
+    fun start(
+        resultCode: Int,
+        data: Intent,
+        onStopped: () -> Unit = {},
+        onFrame: (Bitmap) -> Unit
+    ): Boolean {
         stop()
 
         val manager = ctx.getSystemService(MediaProjectionManager::class.java)
-        val proj = manager.getMediaProjection(resultCode, data) ?: return
+        val proj = manager.getMediaProjection(resultCode, data) ?: return false
         projection = proj
 
         // Resolve metrics from the active default display, not this service's
@@ -76,6 +83,8 @@ class ScreenCaster(private val ctx: Context) {
         val height = bounds?.height()?.takeIf { it > 0 }
             ?: realSize.y.takeIf { it > 0 }
             ?: metrics.heightPixels
+        captureWidth = width
+        captureHeight = height
         val densityDpi = windowContext.resources.configuration.densityDpi
             .takeIf { it > 0 } ?: metrics.densityDpi
         // Keep the VirtualDisplay at the active panel's exact dimensions.
@@ -97,7 +106,28 @@ class ScreenCaster(private val ctx: Context) {
             val callback = object : MediaProjection.Callback() {
                 override fun onStop() {
                     Log.i(TAG, "Screen capture was stopped by Android or the user")
-                    stopIfCurrent(proj)
+                    if (stopIfCurrent(proj)) onStopped()
+                }
+
+                override fun onCapturedContentResize(width: Int, height: Int) {
+                    if (width <= 0 || height <= 0) return
+                    val previousSize = synchronized(this@ScreenCaster) {
+                        if (projection === proj &&
+                            (width != captureWidth || height != captureHeight)
+                        ) {
+                            captureWidth to captureHeight
+                        } else {
+                            null
+                        }
+                    }
+                    if (previousSize != null && stopIfCurrent(proj)) {
+                        Log.w(
+                            TAG,
+                            "Captured display changed from ${previousSize.first}x${previousSize.second} " +
+                                "to ${width}x${height}; stopping Smart Play to avoid stale coordinates"
+                        )
+                        onStopped()
+                    }
                 }
             }
             projectionCallback = callback
@@ -159,7 +189,7 @@ class ScreenCaster(private val ctx: Context) {
                 }
             }, handler)
 
-            display = proj.createVirtualDisplay(
+            val virtualDisplay = proj.createVirtualDisplay(
                 "ghosthand",
                 width,
                 height,
@@ -168,8 +198,10 @@ class ScreenCaster(private val ctx: Context) {
                 imageReader.surface,
                 null,
                 handler
-            )
+            ) ?: throw IllegalStateException("Android did not create the screen-capture display")
+            display = virtualDisplay
             Log.i(TAG, "Screen capture started at ${width}x${height}, throttled")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Unable to start screen capture", e)
             stop()
@@ -177,12 +209,15 @@ class ScreenCaster(private val ctx: Context) {
         }
     }
 
-    private fun stopIfCurrent(expected: MediaProjection) {
+    private fun stopIfCurrent(expected: MediaProjection): Boolean =
         synchronized(this) {
-            if (projection !== expected) return
-            stopLocked()
+            if (projection !== expected) {
+                false
+            } else {
+                stopLocked()
+                true
+            }
         }
-    }
 
     @Synchronized
     fun stop() {
@@ -203,6 +238,8 @@ class ScreenCaster(private val ctx: Context) {
         captureThread = null
         captureHandler = null
         lastFrameAt = 0L
+        captureWidth = 0
+        captureHeight = 0
 
         runCatching { oldReader?.setOnImageAvailableListener(null, null) }
         runCatching { oldDisplay?.release() }

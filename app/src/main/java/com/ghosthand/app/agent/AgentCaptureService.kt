@@ -7,8 +7,11 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.ghosthand.app.R
+import com.ghosthand.app.AutoPlayerService
 import com.ghosthand.app.vision.ScreenCaster
 
 class AgentCaptureService : Service() {
@@ -19,6 +22,7 @@ class AgentCaptureService : Service() {
     }
 
     private var caster: ScreenCaster? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val code = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
@@ -40,16 +44,28 @@ class AgentCaptureService : Service() {
         else startForeground(1, notif)
 
         if (code != 0 && data != null) {
-            AgentBus.frame.value = null
+            AgentBus.clear()
             try {
                 val newCaster = ScreenCaster(this)
-                newCaster.start(code, data) { bmp -> AgentBus.push(bmp) }
+                val started = newCaster.start(
+                    code,
+                    data,
+                    onStopped = {
+                        AgentBus.clear()
+                        AutoPlayerService.instance?.onCaptureStopped()
+                        mainHandler.post {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            stopSelf()
+                        }
+                    },
+                    onFrame = { bmp -> AgentBus.push(bmp) }
+                )
+                if (!started) throw IllegalStateException("MediaProjection could not be created")
                 caster = newCaster
-                AgentBus.casterActive = true
             } catch (e: Exception) {
                 android.util.Log.e("GhostHandCapture", "Screen capture startup failed", e)
-                AgentBus.casterActive = false
-                AgentBus.frame.value = null
+                AgentBus.clear()
+                AutoPlayerService.instance?.onCaptureStopped()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -61,8 +77,7 @@ class AgentCaptureService : Service() {
     }
 
     override fun onDestroy() {
-        AgentBus.casterActive = false
-        AgentBus.frame.value = null
+        AgentBus.clear()
         caster?.stop(); caster = null
         super.onDestroy()
     }

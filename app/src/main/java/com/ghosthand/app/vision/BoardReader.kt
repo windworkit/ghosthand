@@ -25,7 +25,20 @@ class BoardReader {
         val pieces: List<Piece>,
         val geo: GameGeometry.Geo,
         val bmpW: Int,
-        val bmpH: Int
+        val bmpH: Int,
+        // Occupancy is not the same thing as object identity. Unrecognized
+        // occupied cells remain explicit instead of being assumed ordinary.
+        val boardCells: Array<Array<BoardCellObservation>>,
+        val backgroundSupport: Float,
+        val colorSignatures: Array<IntArray>,
+        val traySignature: String
+    )
+
+    data class GridSnapshot(
+        val occupied: Array<BooleanArray>,
+        val colorSignatures: Array<IntArray>,
+        val backgroundSupport: Float,
+        val traySignature: String? = null
     )
 
     private data class Blob(
@@ -38,7 +51,7 @@ class BoardReader {
 
     private val library: List<Piece> = listOf(
         "X", "XX", "XXX", "XXXX", "XXXXX",
-        "XX/XX", "XXX/XXX/XXX", "XXX/XXX",
+        "XX/XX", "XX/XX/XX", "XXX/XXX", "XXX/XXX/XXX",
         "X./XX", "XX/X.", "XX/.X", ".X/XX",
         "X../X../XXX", "XXX/X../X..", "XXX/..X/..X", "..X/..X/XXX",
         ".X/.X/XX", "XX/X./X.", "X./X./XXX", "XXX/.X/.X",
@@ -56,36 +69,154 @@ class BoardReader {
     }
 
         fun read(bmp: Bitmap, geo: GameGeometry.Geo): Reading? {
-        val grid = readGrid(bmp, geo)
+        val (grid, boardCells, backgroundSupport) = readBoardCells(bmp, geo)
         val tray = readTray(bmp, geo) ?: return null
-        return Reading(grid, tray, geo, bmp.width, bmp.height)
+        val signatures = Array(geo.cols) { x ->
+            IntArray(geo.rows) { y -> boardCells[x][y].centerColorSignature }
+        }
+        val traySignature = traySignature(tray, bmp.width, bmp.height)
+        return Reading(
+            grid, tray, geo, bmp.width, bmp.height, boardCells, backgroundSupport,
+            signatures, traySignature
+        )
     }
 
-    fun readGrid(bmp: Bitmap, geo: GameGeometry.Geo): Array<BooleanArray> {
-        val cellLevels = Array(geo.cols) { FloatArray(geo.rows) }
+    fun readGrid(bmp: Bitmap, geo: GameGeometry.Geo): Array<BooleanArray> =
+        readBoardCells(bmp, geo).first
 
-        for (x in 0 until geo.cols) for (y in 0 until geo.rows) {
-            // Sample a small 3x3 patch in the tile face, not its border. Empty
-            // Woodoku cells are dark navy; colored blocks and flower tiles are
-            // substantially brighter. Saturation alone cannot distinguish them.
-            val samples = IntArray(9)
-            var index = 0
-            for (fy in 0..2) for (fx in 0..2) {
-                val px = (geo.ox + (x + 0.34f + fx * 0.16f) * geo.cell)
-                    .toInt().coerceIn(0, bmp.width - 1)
-                val py = (geo.oy + (y + 0.34f + fy * 0.16f) * geo.cell)
-                    .toInt().coerceIn(0, bmp.height - 1)
-                samples[index++] = luminance(bmp.getPixel(px, py))
+    fun readGridWithConfidence(
+        bmp: Bitmap,
+        geo: GameGeometry.Geo
+    ): Pair<Array<BooleanArray>, Float> {
+        val result = readBoardCells(bmp, geo)
+        return result.first to result.third
+    }
+
+    fun readGridSnapshot(
+        bmp: Bitmap,
+        geo: GameGeometry.Geo
+    ): GridSnapshot {
+        val (occupied, cells, backgroundSupport) = readBoardCells(bmp, geo)
+        val signatures = Array(geo.cols) { x ->
+            IntArray(geo.rows) { y -> cells[x][y].centerColorSignature }
+        }
+        val tray = readTray(bmp, geo)
+        val traySignature = tray?.let { traySignature(it, bmp.width, bmp.height) }
+        return GridSnapshot(occupied, signatures, backgroundSupport, traySignature)
+    }
+
+    private fun traySignature(pieces: List<Piece>, width: Int, height: Int): String =
+        pieces.joinToString("|") { piece ->
+            val cells = piece.cells
+                .sortedWith(compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first })
+                .joinToString(";") { "${it.first},${it.second}" }
+            val grabX = if (piece.grabX.isFinite()) {
+                (piece.grabX / width * 100).roundToInt()
+            } else -1
+            val grabY = if (piece.grabY.isFinite()) {
+                (piece.grabY / height * 100).roundToInt()
+            } else -1
+            "${piece.w}x${piece.h}:$cells@${grabX},${grabY}"
+        }
+
+    /**
+     * A board transition is settled only when both its occupied-cell map and
+     * per-cell visual signatures are stable. This catches objective stages
+     * that change color/art without changing whether a cell is occupied.
+     */
+    fun sameVisualState(first: GridSnapshot, second: GridSnapshot): Boolean {
+        if (first.occupied.size != second.occupied.size ||
+            first.colorSignatures.size != second.colorSignatures.size
+        ) return false
+        return first.traySignature == second.traySignature &&
+            first.occupied.indices.all { x ->
+                first.occupied[x].contentEquals(second.occupied[x]) &&
+                    first.colorSignatures[x].contentEquals(second.colorSignatures[x])
             }
-            samples.sort()
-            cellLevels[x][y] = samples[samples.size / 2].toFloat()
+    }
+
+    /**
+     * Classify board occupancy using the board-cell corner/gutter color as a
+     * background reference. The center of a crowded board can be dominated by
+     * colored pieces; sampling corners avoids learning a common block color
+     * as the empty-cell surface.
+     *
+     * The object type remains UNCLASSIFIED_OCCUPIED until a validated icon
+     * classifier can distinguish ordinary blocks from level objectives.
+     */
+    private fun readBoardCells(
+        bmp: Bitmap,
+        geo: GameGeometry.Geo
+    ): Triple<Array<BooleanArray>, Array<Array<BoardCellObservation>>, Float> {
+        fun median(values: IntArray): Int {
+            values.sort()
+            return values[values.size / 2]
         }
 
-        val darkestCell = cellLevels.minOf { col -> col.minOrNull() ?: 255f }
-        val occupiedThreshold = maxOf(76f, darkestCell + 28f)
-                return Array(geo.cols) { x ->
-            BooleanArray(geo.rows) { y -> cellLevels[x][y] > occupiedThreshold }
+        fun pixelColor(x: Float, y: Float): RgbColor {
+            val px = (geo.ox + x * geo.cell).toInt().coerceIn(0, bmp.width - 1)
+            val py = (geo.oy + y * geo.cell).toInt().coerceIn(0, bmp.height - 1)
+            val color = bmp.getPixel(px, py)
+            return RgbColor(Color.red(color), Color.green(color), Color.blue(color))
         }
+
+        val samples = Array(geo.cols) { x ->
+            Array(geo.rows) { y ->
+                val red = IntArray(9)
+                val green = IntArray(9)
+                val blue = IntArray(9)
+                var index = 0
+                for (fy in 0..2) for (fx in 0..2) {
+                    val color = pixelColor(
+                        x + 0.34f + fx * 0.16f,
+                        y + 0.34f + fy * 0.16f
+                    )
+                    red[index] = color.red
+                    green[index] = color.green
+                    blue[index] = color.blue
+                    index++
+                }
+                val center = RgbColor(median(red), median(green), median(blue))
+
+                // Sample the narrow perimeter where rounded block faces leave
+                // the empty board surface visible. Multiple edge samples make
+                // the estimate resilient when a few corners contain effects.
+                val edgePositions = listOf(
+                    0.08f to 0.08f, 0.50f to 0.08f, 0.92f to 0.08f,
+                    0.08f to 0.50f,                         0.92f to 0.50f,
+                    0.08f to 0.92f, 0.50f to 0.92f, 0.92f to 0.92f
+                )
+                val edgeColors = edgePositions.map { (sx, sy) ->
+                    pixelColor(x + sx, y + sy)
+                }
+                CellColorSamples(center, edgeColors)
+            }
+        }
+
+        val classified = BoardOccupancyClassifier.classify(samples)
+        val grid = classified.cells.map { column ->
+            BooleanArray(column.size) { y -> column[y].occupied }
+        }.toTypedArray()
+        val observations = Array(geo.cols) { x ->
+            Array(geo.rows) { y ->
+                val cell = classified.cells[x][y]
+                BoardCellObservation(
+                    column = x,
+                    row = y,
+                    occupied = cell.occupied,
+                    objectType = if (cell.occupied) {
+                        BoardObjectType.UNCLASSIFIED_OCCUPIED
+                    } else {
+                        BoardObjectType.EMPTY
+                    },
+                    luminance = cell.luminance,
+                    backgroundDistance = cell.backgroundDistance,
+                    centerColorSignature = cell.colorSignature,
+                    objectConfidence = if (cell.occupied) 0f else 1f
+                )
+            }
+        }
+        return Triple(grid, observations, classified.backgroundSupport)
     }
 
     /**
@@ -195,7 +326,7 @@ class BoardReader {
         val y0 = (boardBottom + geo.cell * 0.45f).toInt().coerceAtLeast(0)
         val y1 = minOf(
             (boardBottom + geo.cell * 3.1f).toInt(),
-            (bmp.height * 0.88f).toInt(),
+            (bmp.height * 0.96f).toInt(),
             bmp.height
         )
         if (y1 - y0 < geo.cell * 0.7f) return null
@@ -254,8 +385,15 @@ class BoardReader {
                 if (density >= 0.26f) detectedCells.add(cx to cy)
             }
 
-            val connected = largestConnectedComponent(detectedCells)
-            // Ignore an empty/noisy slot and continue scanning the other two.
+            val groups = ShapeTopology.components(detectedCells)
+            // A physical puzzle piece is edge-connected. Diagonal-only
+            // contacts can be two different blocks/noise and must not be
+            // silently merged into a single guessed piece.
+            if (groups.size != 1) {
+                lastTrayDiagnostic = "bands: ambiguous slot ${slot} (${groups.size} disconnected groups)"
+                return null
+            }
+            val connected = groups.single()
             if (connected.isEmpty()) continue
 
             val minX = connected.minOf { it.first }
@@ -360,41 +498,6 @@ class BoardReader {
             total++
         }
         return ink.toFloat() / total.coerceAtLeast(1)
-    }
-
-    private fun largestConnectedComponent(
-        cells: Set<Pair<Int, Int>>
-    ): Set<Pair<Int, Int>> {
-        if (cells.isEmpty()) return emptySet()
-        val remaining = cells.toMutableSet()
-        var largest = emptySet<Pair<Int, Int>>()
-
-        while (remaining.isNotEmpty()) {
-            val stack = ArrayDeque<Pair<Int, Int>>()
-            val component = mutableSetOf<Pair<Int, Int>>()
-            stack.addLast(remaining.first())
-            remaining.remove(stack.last())
-
-            while (stack.isNotEmpty()) {
-                val cell = stack.removeLast()
-                component.add(cell)
-                // Woodoku pieces can touch diagonally (staircases and
-                // offset pairs). Treat all 8 surrounding cells as connected.
-                val neighbours = buildList {
-                    for (dy in -1..1) for (dx in -1..1) {
-                        if (dx != 0 || dy != 0) {
-                            add((cell.first + dx) to (cell.second + dy))
-                        }
-                    }
-                }
-                for (neighbour in neighbours) {
-                    if (remaining.remove(neighbour)) stack.addLast(neighbour)
-                }
-            }
-
-            if (component.size > largest.size) largest = component
-        }
-        return largest
     }
 
     /** Original connected-component reader retained as a fallback. */
@@ -521,6 +624,10 @@ class BoardReader {
                 DetectedCell(cx, cy, blob)
             }
             val rawCells = detected.map { it.x to it.y }.toSet()
+            // Never drop stray detected cells by keeping only a largest
+            // component. A partial shape can make the solver place a block
+            // that does not match the tray piece.
+            if (!ShapeTopology.isConnected(rawCells)) continue
 
             val minX = rawCells.minOf { it.first }
             val maxX = rawCells.maxOf { it.first }

@@ -1,0 +1,298 @@
+GHOSTHAND — PROJECT HANDOFF / SOURCE BACKUP
+Snapshot: 2026-11-27 (America/Chicago)
+Repository: https://github.com/windworkit/ghosthand
+Working branch: codex/objective-aware-core
+Snapshot before this handoff file: 326541993516392bae027ef53285674e5ed65d45
+Pull request: https://github.com/windworkit/ghosthand/pull/1
+Pull request status: OPEN, DRAFT, NOT MERGED
+
+===============================================================================
+1. WHAT GHOSTHAND IS
+===============================================================================
+
+GhostHand is an Android application intended to recognize the board and available
+pieces in Woodoku Blast, calculate safe placements, and then perform those
+placements through Android's screen-capture and accessibility/gesture features.
+
+At a high level, it is intended to:
+  1) Capture the game screen.
+  2) Locate and measure the game board.
+  3) Identify occupied cells and the shapes available in the tray.
+  4) Find legal placements and evaluate their effect on the board/objectives.
+  5) Drag a selected piece to a calculated destination.
+  6) Inspect the next captured frame to determine whether the move actually landed.
+  7) Stop instead of guessing when the screen, board, gesture, or result is ambiguous.
+
+The goal is dependable, conservative automation on the Samsung Galaxy Z Fold 7.
+A successful compile or a passing unit-test suite alone does NOT prove that the
+game can be played correctly on a real phone.
+
+===============================================================================
+2. WHERE THIS SNAPSHOT STANDS
+===============================================================================
+
+This archive contains the latest work from the feature branch:
+  codex/objective-aware-core
+
+The main branch has not been merged with this work. Pull request #1 remains open
+and in draft state. Keep using this feature branch when resuming development;
+do not assume main contains these changes.
+
+The project has a substantial foundation for board reading, piece placement,
+solver safety, objective OCR/progress tracking, and script backup/restore.
+However, it is not yet a verified, finished Woodoku Blast automation app.
+
+Important status distinction:
+  - Android/Kotlin source compilation completed in the latest CI run.
+  - The unit-test task failed because one test assertion is currently wrong.
+  - Because the test task failed, the workflow skipped uploading the APK.
+  - No fresh APK was produced by the latest run.
+  - The new objective-recognition path is deliberately safety-gated and is
+    currently disabled for live play until board objects can be classified
+    confidently.
+  - The latest branch has not passed an end-to-end real-game verification on
+    the Galaxy Z Fold 7.
+
+===============================================================================
+3. WORK ALREADY IMPLEMENTED
+===============================================================================
+
+A. BOARD READING AND GEOMETRY
+
+  - Board occupancy is classified using cell-center RGB/luminance compared with
+    a background estimate taken from perimeter samples.
+  - The reader records how much supporting evidence exists for the background
+    estimate and rejects weak/ambiguous readings rather than trusting them.
+  - Occupied cells that cannot be identified semantically remain explicitly
+    unclassified. They are not silently treated as ordinary blocks.
+  - The geometry pipeline supports fully visible 8x8 and 9x9 square boards.
+  - Grid-size selection uses internal cell-seam alignment scoring and rejects
+    weak or near-tied candidates rather than guessing.
+  - Search ranges were expanded to account for the Galaxy Z Fold cover and
+    inner display layouts.
+  - Capture-frame freshness is tracked so the agent can avoid repeating work
+    against an old frame.
+  - Capture/agent shutdown is handled when projection ends or the display
+    dimensions change.
+
+B. PIECE AND TRAY RECOGNITION
+
+  - Piece connectivity uses four-direction/edge adjacency. Diagonal corner
+    contact alone does not join two cells into one piece.
+  - Exact detected piece masks and pickup anchors are retained.
+  - Ambiguous or disconnected tray detections are rejected rather than
+    silently simplified.
+  - The solver validates board dimensions, piece footprints, connectivity,
+    placement bounds, and malformed inputs.
+  - The tray reader is designed to handle fixed-orientation polyomino masks;
+    its complete real-game shape catalogue still needs empirical confirmation.
+
+C. PLACEMENT, DRAGGING, AND POST-MOVE SAFETY
+
+  - Destination coordinates use the actual detected pickup tile as the anchor.
+  - Drag calibration is kept separate for each exact piece mask and pickup
+    anchor.
+  - Destinations outside the captured screen frame are rejected rather than
+    clamped to a screen edge.
+  - Android gesture cancellation/refusal is treated as a failed gesture.
+  - Calibration is learned only after a uniquely identifiable board landing.
+  - Post-drop verification checks more than simple occupied/empty cells:
+    quantized cell-colour signatures and tray/pickup signatures are also used.
+  - If the visual transition is ambiguous, the system pauses instead of
+    repeatedly issuing a speculative drag.
+  - Completed rows and columns are detected from the same post-placement
+    board state.
+
+D. OBJECTIVE OCR AND PROGRESS TRACKING
+
+  - OCR retains token-level and full-line text.
+  - Explicit objective words currently recognized in OCR include flowers,
+    hearts, butterflies, apples, balloons, bombs, fireworks, gems, crates/boxes,
+    and score.
+  - Explicit counters such as 2/5 can be parsed when the label and ratio appear
+    together in an OCR line.
+  - Unlabelled numbers are preserved as diagnostics; their meaning is not
+    guessed.
+  - Labeled counter changes are tracked by objective type and approximate
+    screen position.
+  - A progress/regression event is only accepted after the changed value is
+    seen in two separate captured frames, reducing one-frame OCR mistakes.
+  - A reference mechanic catalogue has been added for certain documented
+    objective behaviors. This catalogue is reference information, not proof
+    that every mechanic is recognized or simulated live.
+
+E. OBJECTIVE-AWARE SOLVER FOUNDATION
+
+  - A separate evaluator can score hypothetical placements when board cells
+    have already been assigned supported object types with high confidence.
+  - The optional evaluator includes heart/marked-tile collection on completed
+    rows and columns.
+  - It models apples surviving a line clear, falling through newly empty cells,
+    and being collected when they reach the bottom.
+  - Balloon contacts can be reported, but balloon release-count state is not
+    modeled well enough for objective-aware scoring.
+  - Unsupported object types are rejected; unknown special objects do not get
+    invented bonuses.
+  - The classification gate currently supports ordinary blocks, hearts, and
+    apples, and requires at least 92% semantic classification confidence for
+    every occupied cell.
+  - Critically, the current live reader assigns occupied cells 0% semantic
+    object confidence and marks them unclassified. Therefore, the optional
+    objective-aware scoring route is safely gated OFF in live operation.
+  - The ordinary occupancy-based solver remains the live fallback.
+
+F. SCRIPT BACKUP AND RESTORE
+
+  - The app has versioned JSON script export through Android's document picker.
+  - Restore validates backup schema, IDs, normalized coordinates, loop balance,
+    supported settings, duplicate IDs, and backup size before writing.
+  - A legacy ADB helper exists at:
+        tools/backup-legacy-scripts.ps1
+    It extracts private scripts from an older debuggable com.ghosthand install
+    using ADB run-as and converts them to the JSON format accepted by the new
+    restore flow.
+  - The legacy helper requires Android Platform-Tools, an authorized USB
+    debugging device, and the old debuggable package to still be installed.
+  - IMPORTANT: do not uninstall an older installation or change signing
+    identity before preserving any scripts/data you still need. An earlier
+    Build139 signing certificate differs from the current stable-key build,
+    so an APK signed differently may not update that older installation
+    in-place.
+
+G. AUTOMATED TESTS AND BUILD PIPELINE
+
+  - JVM tests cover solver placement/line clearing, piece topology, invalid
+    bounds, objective OCR, two-frame objective progress tracking, board colour
+    classification, visual state transitions, 8x8/9x9 grid alignment,
+    objective confidence gating, and script backup validation.
+  - GitHub Actions runs unit tests before assembling the debug APK.
+  - CI uses a cached stable Android debug signing key and increments Android
+    versionCode using the workflow run number.
+  - The most recent completed source-code validation before this documentation-only handoff was run #220:
+    https://github.com/windworkit/ghosthand/actions/runs/46094019142
+  - Run #220 tested commit:
+    326541993516392bae027ef53285674e5ed65d45
+  - It completed with FAILURE at :app:testDebugUnitTest. The Android build
+    step did not reach artifact upload, so there is no APK artifact from run
+    #220.
+  - The single reported failing test is:
+    ObjectiveMoveScorerTest.scoresMarkedTilesAcrossSimultaneousRowAndColumnClear
+  - In that test, the final piece is placed at column index 3, but the assertion
+    at line 68 expects the cleared column list to contain index 2. This appears
+    to be a test-expectation mismatch and is the first small correction to make.
+    It has NOT been changed in this snapshot.
+
+===============================================================================
+4. WHAT IS STILL NOT COMPLETE
+===============================================================================
+
+The following are real remaining requirements, not optional polish:
+
+  1) Restore a clean automated build.
+     Correct the known failing simultaneous-clear assertion, rerun the full
+     JVM test suite, and confirm that CI reaches APK assembly and artifact
+     upload.
+
+  2) Implement actual board-icon classification.
+     OCR can read objective words and counters, but it does not identify the
+     heart/apple/balloon/etc. object inside each occupied board cell from pixels.
+     The app needs reliable icon recognition with confidence values and a
+     safe unknown result.
+
+  3) Implement and validate special-object state.
+     The solver must understand the real in-game rules for each supported
+     special object (for example, balloon release stages, apple falling/support,
+     and other objective/obstacle behaviors) before using them to choose moves.
+     The reference catalogue alone is not sufficient.
+
+  4) Validate the complete piece catalogue and board geometry against real
+     Woodoku Blast screenshots.
+     Synthetic tests are helpful but do not replace real screenshots from
+     the target game and screen layouts.
+
+  5) Verify placement on the actual Galaxy Z Fold 7.
+     Confirm board detection, tray detection, pickup anchors, destination
+     coordinates, screen scaling, drag timing, and post-drop verification.
+     Test cover and inner display layouts where applicable.
+
+  6) Run controlled end-to-end gameplay sessions.
+     Demonstrate that GhostHand consistently chooses legal moves, lands pieces
+     in the intended cells, recognizes the resulting board, and does not repeat
+     invalid moves or place pieces over occupied cells. Include objective
+     stages and failure/ambiguous-screen cases.
+
+  7) Prepare a release candidate.
+     After the above pass, produce and identify a fresh APK, verify its
+     installation/update behavior, preserve script backups, and document the
+     final supported Android/game configurations.
+
+===============================================================================
+5. HOW FAR FROM COMPLETION?
+===============================================================================
+
+The core engineering foundation is in place, but the project is still at the
+prototype/integration stage rather than release-ready.
+
+The remaining work is not just one final bug fix. The immediate CI test issue
+is small and clearly located, but the larger remaining work is image-based
+special-object recognition, objective-state modeling, and real-device
+verification of board reading and physical drag placement.
+
+There is no defensible calendar completion date yet. The largest unknown is how
+much tuning and validation will be needed once real Woodoku Blast screenshots
+and live Galaxy Z Fold 7 captures are exercised against the current pipeline.
+A responsible completion claim should only be made after all of these gates
+pass:
+
+  [ ] All automated tests pass.
+  [ ] CI successfully builds and uploads a fresh APK.
+  [ ] Board and tray detection work on real game screenshots.
+  [ ] Every supported piece shape has been validated against real samples.
+  [ ] Special-object recognition only activates above validated confidence.
+  [ ] The solver accounts for the objectives that it claims to support.
+  [ ] Drag placements land in the exact intended cells on the Fold 7.
+  [ ] Post-move recognition correctly confirms success/failure.
+  [ ] Repeated end-to-end sessions complete without unsafe or invalid moves.
+  [ ] A release APK and backup/restore instructions are verified.
+
+Do not assign a percentage or promise a delivery date based only on the source
+code or synthetic tests. Device verification is a required completion milestone.
+
+===============================================================================
+6. HOW TO RESUME DEVELOPMENT
+===============================================================================
+
+Repository:
+  https://github.com/windworkit/ghosthand
+
+Branch:
+  codex/objective-aware-core
+
+Draft pull request:
+  https://github.com/windworkit/ghosthand/pull/1
+
+Recommended Windows PowerShell commands to obtain the full Git history:
+
+  cd $HOME\Documents
+  git clone https://github.com/windworkit/ghosthand.git GhostHand-Backup
+  cd GhostHand-Backup
+  git switch --track origin/codex/objective-aware-core
+
+This checks out the unfinished feature branch while preserving the repository's
+Git history. Do not merge the draft PR into main until the remaining work and
+verification gates have passed.
+
+Detailed implementation notes are also maintained in:
+  docs/IMPLEMENTATION_STATUS.md
+
+===============================================================================
+7. BACKUP AND TESTING NOTICE
+===============================================================================
+
+This handoff describes the source snapshot only. It is not an APK and it is not
+a claim that the latest version is ready to install.
+
+The owner requested a source backup first and has not asked to install or test
+this checkpoint on the phone. Preserve the backup before resuming development.
+
+END OF HANDOFF

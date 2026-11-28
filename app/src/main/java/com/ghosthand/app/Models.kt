@@ -45,6 +45,100 @@ data class Script(
     val keepAwake: Boolean = true
 )
 
+@Serializable
+data class ScriptBackup(
+    val schemaVersion: Int = 1,
+    val scripts: List<Script>
+)
+
+/**
+ * Portable, validated backup format for scripts. Import merges by stable
+ * script ID, allowing a user to restore runs after reinstalling GhostHand.
+ */
+object ScriptBackupCodec {
+    private const val SCHEMA_VERSION = 1
+    private const val MAX_BACKUP_CHARS = 8 * 1024 * 1024
+    private const val MAX_SCRIPTS = 500
+    private const val MAX_STEPS_PER_SCRIPT = 2_000
+    private val json = Json {
+        prettyPrint = true
+        encodeDefaults = true
+        ignoreUnknownKeys = true
+    }
+    private val validId = Regex(
+        """[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}"""
+    )
+
+    fun encode(scripts: List<Script>): String {
+        require(scripts.size <= MAX_SCRIPTS) { "Too many scripts to back up" }
+        require(scripts.map { it.id }.distinct().size == scripts.size) {
+            "Script backup contains duplicate IDs"
+        }
+        require(scripts.all(::isValidScript)) { "A script contains invalid data" }
+        val content = json.encodeToString(ScriptBackup(SCHEMA_VERSION, scripts))
+        require(content.length <= MAX_BACKUP_CHARS) { "Backup would be too large" }
+        return content
+    }
+
+    fun decode(content: String): List<Script> {
+        require(content.isNotBlank() && content.length <= MAX_BACKUP_CHARS) {
+            "Backup file is empty or too large"
+        }
+        val backup = json.decodeFromString<ScriptBackup>(content)
+        require(backup.schemaVersion == SCHEMA_VERSION) {
+            "Unsupported GhostHand backup version: ${backup.schemaVersion}"
+        }
+        require(backup.scripts.size <= MAX_SCRIPTS) { "Backup contains too many scripts" }
+        require(backup.scripts.map { it.id }.distinct().size == backup.scripts.size) {
+            "Backup contains duplicate script IDs"
+        }
+        require(backup.scripts.all(::isValidScript)) {
+            "Backup contains invalid script data"
+        }
+        return backup.scripts
+    }
+
+    private fun isValidScript(script: Script): Boolean {
+        if (!validId.matches(script.id)) return false
+        if (script.name.length > 500) return false
+        if (script.steps.size > MAX_STEPS_PER_SCRIPT) return false
+        if (script.repeats !in setOf(0, 1, 3, 5, 10)) return false
+        if (script.jitterMs !in 0L..600L) return false
+        if (!script.jitterDp.isFinite() || script.jitterDp !in 0f..20f) return false
+
+        var loopDepth = 0
+        for (step in script.steps) {
+            when (step) {
+                is Step.Tap ->
+                    if (!validCoord(step.x) || !validCoord(step.y)) return false
+                is Step.LongPress ->
+                    if (!validCoord(step.x) || !validCoord(step.y) ||
+                        step.ms !in 100L..10_000L
+                    ) return false
+                is Step.Swipe ->
+                    if (!validCoord(step.x1) || !validCoord(step.y1) ||
+                        !validCoord(step.x2) || !validCoord(step.y2) ||
+                        step.ms !in 40L..3_000L
+                    ) return false
+                is Step.Wait ->
+                    if (step.ms !in 50L..120_000L) return false
+                is Step.LoopStart -> {
+                    if (step.times !in setOf(0, 2, 3, 5, 10, 20)) return false
+                    loopDepth++
+                }
+                is Step.LoopEnd -> {
+                    if (loopDepth == 0) return false
+                    loopDepth--
+                }
+            }
+        }
+        return loopDepth == 0
+    }
+
+    private fun validCoord(value: Float): Boolean =
+        value.isFinite() && value in 0f..1f
+}
+
 fun describe(st: Step): String = when (st) {
     is Step.Tap       -> "tap ${p(st.x)} · ${p(st.y)}"
     is Step.LongPress -> "hold ${p(st.x)} · ${p(st.y)} ${st.ms}ms"
@@ -107,5 +201,15 @@ object ScriptStore {
 
     fun save(s: Script) { File(dir, "${s.id}.json").writeText(json.encodeToString(s)) }
     fun delete(id: String) { File(dir, "$id.json").delete() }
+
+    fun exportBackup(): String = ScriptBackupCodec.encode(list())
+
+    /** Merge a validated backup into the current script store by script ID. */
+    fun importBackup(content: String): Int {
+        val restored = ScriptBackupCodec.decode(content)
+        restored.forEach(::save)
+        return restored.size
+    }
+
     fun create(name: String): Script = Script(id = UUID.randomUUID().toString(), name = name).also { save(it) }
 }

@@ -13,11 +13,12 @@ object GameGeometry {
         val cols: Int, val rows: Int
     )
 
-    // Prefer the explicit outer frame for Woodoku-style 8x8 boards.
-    // The line detector can mistake internal grid seams for the board edges
-    // and return a plausible-looking but incorrect 10x6 (or similar) grid.
+    // Woodoku Blast builds can use either an 8x8 or 9x9 board. Prefer the
+    // framed-square detector, which scores the visible cell seams for both
+    // candidates; use explicit grid-line detection as a fallback.
     fun calibrate(bmp: Bitmap): Geo? =
-        calibrateFramedSquare(bmp) ?: calibrateGridLines(bmp)
+        (calibrateFramedSquare(bmp) ?: calibrateGridLines(bmp))
+            ?.takeIf { it.cols in 8..9 && it.rows == it.cols }
 
     /**
      * Original line-based calibration. Kept as the first choice for games that
@@ -64,7 +65,8 @@ object GameGeometry {
     /**
      * Woodoku-style boards often have no drawn grid lines: empty cells share
      * one dark surface and the only reliable geometry is the luminous outer
-     * frame. Find that frame, then divide its square interior into 8 x 8 cells.
+     * frame. Find that frame, then test both 8x8 and 9x9 cell lattices against
+     * the actual internal seams instead of assuming a fixed board size.
      */
     private fun calibrateFramedSquare(bmp: Bitmap): Geo? {
         val w = bmp.width
@@ -112,10 +114,13 @@ object GameGeometry {
             return selected
         }
 
-        val topLo = (h * 0.22f).toInt().coerceAtLeast(3)
-        val topHi = (h * 0.45f).toInt().coerceAtMost(h - 3)
-        val bottomLo = (h * 0.58f).toInt().coerceAtLeast(3)
-        val bottomHi = (h * 0.78f).toInt().coerceAtMost(h - 3)
+        // The Fold's cover and inner displays have very different aspect
+        // ratios. Search most of the usable vertical span instead of assuming
+        // a conventional phone's board position.
+        val topLo = (h * 0.05f).toInt().coerceAtLeast(3)
+        val topHi = (h * 0.70f).toInt().coerceAtMost(h - 3)
+        val bottomLo = (h * 0.30f).toInt().coerceAtLeast(3)
+        val bottomHi = (h * 0.96f).toInt().coerceAtMost(h - 3)
         if (topHi <= topLo || bottomHi <= bottomLo) return null
 
         val separation = (w * 0.015f).roundToInt().coerceIn(6, 14)
@@ -154,8 +159,10 @@ object GameGeometry {
                 return total / count.coerceAtLeast(1)
             }
 
-            val leftEnd = (w * 0.12f).toInt().coerceAtLeast(3)
-            val rightStart = (w * 0.88f).toInt().coerceAtMost(w - 3)
+            // The Fold's inner display can place a square board around
+            // 74% of display width. Search beyond the old 12% edge margins.
+            val leftEnd = (w * 0.30f).toInt().coerceAtLeast(3)
+            val rightStart = (w * 0.70f).toInt().coerceAtMost(w - 3)
             val leftCandidates = (2 until leftEnd)
                 .map { it to verticalEdge(it) }
                 .sortedByDescending { it.second }
@@ -179,7 +186,10 @@ object GameGeometry {
             return best
         }
 
-        val targetSide = w * 0.96f
+        // A square board is constrained by both display width and height.
+        // This remains sensible on the narrow cover screen and the wider
+        // unfolded screen instead of assuming the board spans 96% of width.
+        val targetSide = minOf(w * 0.96f, h * 0.82f)
         var bestTop = -1
         var bestBottom = -1
         var bestRails: Rails? = null
@@ -190,7 +200,7 @@ object GameGeometry {
             for ((bottom, bottomStrength) in bottomCandidates) {
                 if (bottomStrength < 10f) continue
                 val height = (bottom - top).toFloat()
-                if (height < w * 0.70f || height > w * 1.18f) continue
+                if (height < targetSide * 0.70f || height > targetSide * 1.20f) continue
 
                 val rails = findVerticalRails(top, bottom) ?: continue
                 val width = (rails.right - rails.left).toFloat()
@@ -220,34 +230,58 @@ object GameGeometry {
         if (aspect !in 0.78f..1.22f) return null
 
         // The bright frame surrounds the playable cells; it is not itself
-        // the cell lattice. Woodoku leaves a visible dark gutter between the
-        // outer rail and the first/last cell. Using the full frame span as
-        // 8*cell makes the pitch too large and accumulates target error toward
-        // the far edge (enough to drop a piece into the neighboring cell).
-        val roughCell = ((boardWidth + boardHeight) / 16f)
-        if (roughCell < 8f) return null
+        // the cell lattice. Test both supported sizes using the estimated
+        // interior pitch, then prefer the candidate whose internal seams line
+        // up most strongly with the screenshot.
+        data class GridCandidate(
+            val divisions: Int,
+            val originX: Int,
+            val originY: Int,
+            val cell: Int,
+            val alignment: Float
+        )
 
-        // Estimate the inset independently on both axes. On this board theme
-        // the inner lattice begins about one eighth of a cell inside the rail.
-        val insetX = (roughCell * 0.125f).roundToInt().coerceAtLeast(2)
-        val insetY = (roughCell * 0.125f).roundToInt().coerceAtLeast(2)
-        val playableWidth = boardWidth - 2f * insetX
-        val playableHeight = boardHeight - 2f * insetY
-        if (playableWidth <= 0f || playableHeight <= 0f) return null
+        val candidates = (8..9).mapNotNull { divisions ->
+            val roughCell = (boardWidth + boardHeight) / (2f * divisions)
+            if (roughCell < 8f) return@mapNotNull null
 
-        // Derive the pitch from the playable rectangle, not the decorative
-        // frame. Averaging both axes keeps the board square after capture
-        // scaling and small JPEG/edge-detection variations.
-        val cell = ((playableWidth + playableHeight) / 16f).roundToInt()
-        if (cell < 8) return null
+            // The inner lattice begins slightly inside the decorative rail.
+            val insetX = (roughCell * 0.125f).roundToInt().coerceAtLeast(2)
+            val insetY = (roughCell * 0.125f).roundToInt().coerceAtLeast(2)
+            val playableWidth = boardWidth - 2f * insetX
+            val playableHeight = boardHeight - 2f * insetY
+            if (playableWidth <= 0f || playableHeight <= 0f) return@mapNotNull null
 
-        val ox = (left + insetX).coerceIn(0, w - 1)
-        val oy = (bestTop + insetY).coerceIn(0, h - 1)
-        if (ox + 8 * cell > w + cell * 0.08f ||
-            oy + 8 * cell > h + cell * 0.08f
+            val cell = ((playableWidth + playableHeight) / (2f * divisions)).roundToInt()
+            if (cell < 8) return@mapNotNull null
+
+            val ox = (left + insetX).coerceIn(0, w - 1)
+            val oy = (bestTop + insetY).coerceIn(0, h - 1)
+            if (ox + divisions * cell > w + cell * 0.08f ||
+                oy + divisions * cell > h + cell * 0.08f
+            ) return@mapNotNull null
+
+            val alignment = GridAlignmentScorer.score(
+                divisions, divisions, ox, oy, cell, ::lum
+            )
+            GridCandidate(divisions, ox, oy, cell, alignment)
+        }.sortedByDescending { it.alignment }
+
+        val best = candidates.firstOrNull() ?: return null
+        val runnerUp = candidates.getOrNull(1)
+        // Weak or nearly tied candidates are ambiguous. A false board size
+        // is more dangerous than pausing until a clearer frame arrives.
+        if (best.alignment < 4f ||
+            (runnerUp != null && best.alignment - runnerUp.alignment < 1.5f)
         ) return null
 
-        return Geo(ox, oy, cell, cols = 8, rows = 8)
+        return Geo(
+            best.originX,
+            best.originY,
+            best.cell,
+            cols = best.divisions,
+            rows = best.divisions
+        )
     }
 
     private fun evenlySpacedPeaks(str: IntArray, minLines: Int, minSpacing: Int): List<Int>? {
