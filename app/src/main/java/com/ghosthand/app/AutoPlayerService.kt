@@ -122,6 +122,12 @@ class AutoPlayerService : AccessibilityService() {
         }
     }
 
+    /** Cancel automation after projection has already ended; do not stop the
+     * capture service again from inside its own shutdown callback. */
+    fun onCaptureStopped() {
+        playJob?.cancel()
+    }
+
     fun togglePause() {
         paused.value = !paused.value
         statusText.value = if (paused.value) "Paused — resume from the pill" else "Running…"

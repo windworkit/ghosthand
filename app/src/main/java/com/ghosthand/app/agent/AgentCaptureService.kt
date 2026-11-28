@@ -52,7 +52,7 @@ class AgentCaptureService : Service() {
                     data,
                     onStopped = {
                         AgentBus.clear()
-                        AutoPlayerService.instance?.stop()
+                        AutoPlayerService.instance?.onCaptureStopped()
                         mainHandler.post {
                             stopForeground(STOP_FOREGROUND_REMOVE)
                             stopSelf()
@@ -65,7 +65,7 @@ class AgentCaptureService : Service() {
             } catch (e: Exception) {
                 android.util.Log.e("GhostHandCapture", "Screen capture startup failed", e)
                 AgentBus.clear()
-                AutoPlayerService.instance?.stop()
+                AutoPlayerService.instance?.onCaptureStopped()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
