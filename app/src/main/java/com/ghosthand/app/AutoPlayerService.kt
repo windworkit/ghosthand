@@ -74,11 +74,11 @@ class AutoPlayerService : AccessibilityService() {
 
     override fun onServiceConnected() { super.onServiceConnected(); instance = this }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
-    override fun onInterrupt() {}
+    override fun onInterrupt() { stop() }
 
     override fun onDestroy() {
         instance = null
-        runCatching { stopService(Intent(this, AgentCaptureService::class.java)) }
+        stopCaptureService()
         runCatching { crossFrame?.let { wm().removeView(it) } }
         runCatching { pillFrame?.let { wm().removeView(it) } }
         crossFrame = null; pillFrame = null
@@ -112,14 +112,16 @@ class AutoPlayerService : AccessibilityService() {
         }
     }
 
+    private fun stopCaptureService() {
+        runCatching { stopService(Intent(this, AgentCaptureService::class.java)) }
+    }
+
     fun stop() {
         playJob?.cancel()
         // Smart Play owns the screen-capture session. Stopping automation must
         // also stop the foreground projection service so it does not keep
         // recording the screen after the user has pressed Stop.
-        runCatching {
-            stopService(Intent(this, AgentCaptureService::class.java))
-        }
+        stopCaptureService()
     }
 
     /** Cancel automation after projection has already ended; do not stop the
@@ -328,6 +330,7 @@ class AutoPlayerService : AccessibilityService() {
             } catch (e: Exception) {
                 statusText.value = "Smart Play error: ${e.message ?: e.javaClass.simpleName}"
                 android.util.Log.e("GhostHand", "Smart Play agent crashed", e)
+                stopCaptureService()
             } finally {
                 isRunning.value = false
                 paused.value = false
