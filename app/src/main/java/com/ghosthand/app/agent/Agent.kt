@@ -60,6 +60,12 @@ class Agent(
     // guess for shapes not seen yet (instead of the fixed prior).
     private var sharedAdj: Adj? = null
 
+    // How far a held piece moves per pixel of finger movement, per axis,
+    // measured while aiming. Null until seen; some games move it faster
+    // than the finger so a far drag doesn't need a long swipe.
+    private var gainX: Float? = null
+    private var gainY: Float? = null
+
     private fun remember(key: PlacementKey, adj: Adj) {
         // A finger more than a few cells from the piece is a mis-read, not
         // a real lift; storing it would throw every later drag off screen.
@@ -331,41 +337,65 @@ class Agent(
             // isn't available.
             var finalAdj = adj
             val dispatched: Boolean
-            if (motor.dragAndHold(startNx, startNy, endNx, endNy, ms = 900)) {
-                var fingerX = dropX
-                var fingerY = dropY
+            // Some games move a held piece farther than the finger moves, so a
+            // straight drag to the aim point flings a far-travelling piece off
+            // the board where it can't be seen or corrected. Stop short
+            // (scaled by the learned finger-to-piece speed), look where the
+            // piece is, then finish while measuring how far it really moves.
+            val firstX = grabX + (dropX - grabX) / (gainX ?: CAUTIOUS_GAIN)
+            val firstY = grabY + (dropY - grabY) / (gainY ?: CAUTIOUS_GAIN)
+            val firstNx = firstX / reading.bmpW
+            val firstNy = firstY / reading.bmpH
+            if (motor.dragAndHold(startNx, startNy, firstNx, firstNy, ms = 900)) {
+                var fingerX = firstX
+                var fingerY = firstY
                 var since = SystemClock.elapsedRealtime() + FRAME_LAG_MS
+                var curGainX = gainX ?: 1f
+                var curGainY = gainY ?: 1f
+                var measuredX = false
+                var measuredY = false
+                var prevFingerX = Float.NaN
+                var prevFingerY = Float.NaN
+                var prevPieceX = Float.NaN
+                var prevPieceY = Float.NaN
                 var lastErr = Float.MAX_VALUE
+                var seen = false
+                var onTarget = false
                 var untrusted = false
                 for (fix in 0 until MAX_AIM_FIXES) {
                     val held = heldFrame(bmp, since) ?: break
-                    val located = locateHeldPiece(bmp, held, geo, piece, grabX, grabY)
-                    if (located == null) {
-                        onStatus("Aim check: piece not found; dropping as aimed")
-                        break
+                    val located = locateHeldPiece(bmp, held, geo, piece, grabX, grabY) ?: break
+                    seen = true
+                    // How far did the piece move for the last finger move?
+                    if (prevFingerX.isFinite()) {
+                        val dfx = fingerX - prevFingerX
+                        val dfy = fingerY - prevFingerY
+                        if (abs(dfx) >= cell * GAIN_MIN_MOVE_CELLS) {
+                            val g = (located.centerX - prevPieceX) / dfx
+                            if (g in MIN_GAIN..MAX_GAIN) { curGainX = g; measuredX = true }
+                        }
+                        if (abs(dfy) >= cell * GAIN_MIN_MOVE_CELLS) {
+                            val g = (located.centerY - prevPieceY) / dfy
+                            if (g in MIN_GAIN..MAX_GAIN) { curGainY = g; measuredY = true }
+                        }
                     }
                     val ex = targetAnchorX - located.centerX
                     val ey = targetAnchorY - located.centerY
-                    if (abs(ex) <= cell * AIM_TOLERANCE && abs(ey) <= cell * AIM_TOLERANCE) break
+                    if (abs(ex) <= cell * AIM_TOLERANCE && abs(ey) <= cell * AIM_TOLERANCE) {
+                        onTarget = true
+                        break
+                    }
                     // A real lock follows the finger, so every fix must shrink
                     // the error. If it doesn't, the locator latched onto
-                    // something static (a same-coloured tile, an apple) and
-                    // repeating the same push walks the piece off screen.
+                    // something static (a same-coloured tile, an apple).
                     val err = hypot(ex, ey)
                     if (err > lastErr * AIM_MIN_IMPROVEMENT) {
                         untrusted = true
                         break
                     }
                     lastErr = err
-                    val newX = fingerX + ex
-                    val newY = fingerY + ey
-                    // Never wander more than a few cells from the planned drop.
-                    if (abs(newX - dropX) > cell * MAX_AIM_SHIFT_CELLS ||
-                        abs(newY - dropY) > cell * MAX_AIM_SHIFT_CELLS
-                    ) {
-                        untrusted = true
-                        break
-                    }
+                    val newX = fingerX + ex / curGainX
+                    val newY = fingerY + ey / curGainY
                     val nx = newX / reading.bmpW
                     val ny = newY / reading.bmpH
                     if (!nx.isFinite() || !ny.isFinite() || nx !in 0.01f..0.99f || ny !in 0.01f..0.99f) {
@@ -374,17 +404,35 @@ class Agent(
                     }
                     onStatus("Aim fix ${"%.1f".format(ex / cell)},${"%.1f".format(ey / cell)} cells")
                     if (!motor.moveHeld(nx, ny, 250)) break
+                    prevFingerX = fingerX; prevFingerY = fingerY
+                    prevPieceX = located.centerX; prevPieceY = located.centerY
                     fingerX = newX
                     fingerY = newY
                     since = SystemClock.elapsedRealtime() + FRAME_LAG_MS
                 }
-                if (untrusted && (fingerX != dropX || fingerY != dropY)) {
-                    onStatus("Aim check unreliable; back to planned drop")
+                if (measuredX) gainX = curGainX
+                if (measuredY) gainY = curGainY
+
+                if (untrusted) {
+                    // Can't trust where the piece is: put it back in the tray
+                    // rather than dropping it in a random cell.
+                    motor.moveHeld(startNx, startNy, 350)
+                    motor.releaseHeld()
+                    stopOnFailedPlacement = true
+                    onStatus("Aim check unreliable; piece returned to tray — paused")
+                    return true
+                }
+                if (!seen && (fingerX != dropX || fingerY != dropY)) {
+                    // Never saw the piece; finish the drag to the plain aim point.
+                    onStatus("Aim check: piece not found; dropping as aimed")
                     if (motor.moveHeld(endNx, endNy, 250)) {
                         fingerX = dropX
                         fingerY = dropY
                         delay(FRAME_LAG_MS)
                     }
+                } else if (seen && !onTarget) {
+                    // Last fix was sent but not checked; it's the best estimate.
+                    onStatus("Aim: dropping after ${MAX_AIM_FIXES} fixes")
                 }
                 finalAdj = Adj((fingerX - targetAnchorX) / cell, (fingerY - targetAnchorY) / cell)
                 motor.releaseHeld()
@@ -615,12 +663,17 @@ class Agent(
         const val MIN_BACKGROUND_SUPPORT = 0.35f
 
         // Held-drag aim correction.
-        const val MAX_AIM_FIXES = 3
+        const val MAX_AIM_FIXES = 4
         const val AIM_TOLERANCE = 0.15f // cells
         // Each held-aim fix must cut the remaining error to at most this share.
         const val AIM_MIN_IMPROVEMENT = 0.7f
-        // Max distance the finger may slide from the planned drop while aiming.
-        const val MAX_AIM_SHIFT_CELLS = 3.5f
+        // Before the piece speed is known, the first stop assumes the piece
+        // may move this many times as far as the finger, so it stops short.
+        const val CAUTIOUS_GAIN = 1.6f
+        // A finger move must be at least this long to measure piece speed.
+        const val GAIN_MIN_MOVE_CELLS = 0.4f
+        const val MIN_GAIN = 0.5f
+        const val MAX_GAIN = 3f
         // Learned finger-to-piece offsets beyond this are treated as mis-reads.
         const val MAX_LEARNED_ADJ_CELLS = 5f
         const val FRAME_LAG_MS = 150L
