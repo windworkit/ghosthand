@@ -37,8 +37,9 @@ This document tracks what the objective-aware core does and, just as importantly
 ### Script backup and restore
 - Export scripts into a portable, versioned JSON backup through Android's document picker.
 - Restore scripts after reinstall; imports are validated and merged by script ID.
-- Validate UUID IDs, normalized coordinates, step durations, loop balance, duplicate IDs, schema version, and backup size before writing anything.
-- Backup/restore is intended to protect local scripts if an app-signing transition requires a one-time reinstall.
+- Validate UUID IDs, normalized coordinates, editor-supported pass/jitter/duration/loop settings, loop balance, duplicate IDs, schema version, and backup size before writing anything.
+- Added `tools/backup-legacy-scripts.ps1` for the older installation: it uses ADB `run-as` to extract the existing private `files/scripts` folder and converts it into the JSON backup format accepted by the new in-app Restore Scripts button.
+- The legacy helper requires Android Platform-Tools, one authorized USB-debugging device, and an installed debuggable `com.ghosthand` package. It does not uninstall or modify the existing app.
 
 ### Automated tests and CI
 - Runs JVM unit tests before building the debug APK.
