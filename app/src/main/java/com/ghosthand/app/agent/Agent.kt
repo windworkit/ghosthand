@@ -3,6 +3,7 @@ package com.ghosthand.app.agent
 
 import android.graphics.Bitmap
 import com.ghosthand.app.solver.BlockSolver
+import com.ghosthand.app.solver.ObjectiveGoal
 import com.ghosthand.app.vision.BoardReader
 import com.ghosthand.app.vision.GameGeometry
 import com.ghosthand.app.vision.BoardObjectType
@@ -221,12 +222,39 @@ class Agent(
         val unclassifiedOccupied = reading.boardCells.sumOf { column ->
             column.count { it.objectType == BoardObjectType.UNCLASSIFIED_OCCUPIED }
         }
+        val objectiveGoals = objectiveSnapshot.counters.mapNotNull { counter ->
+            val current = counter.current ?: return@mapNotNull null
+            val target = counter.target ?: return@mapNotNull null
+            if (target <= 0 || current !in 0..target) return@mapNotNull null
+            ObjectiveGoal(counter.type, current, target)
+        }
+        // The objective simulator models only tile types whose line-clear or
+        // fall behavior is defined. If even one occupied cell is unclassified
+        // or has an unsupported special type, keep the existing Boolean-grid
+        // solver; never treat an unknown obstacle as an ordinary block.
+        val supportedBoardTypes = setOf(
+            BoardObjectType.ORDINARY_BLOCK,
+            BoardObjectType.HEART,
+            BoardObjectType.APPLE,
+            BoardObjectType.BALLOON
+        )
+        val objectiveBoardReady = reading.boardCells.all { column ->
+            column.all { cell ->
+                !cell.occupied || cell.objectType in supportedBoardTypes
+            }
+        }
+        val objectiveBoard = if (objectiveBoardReady) {
+            Array(geo.cols) { x ->
+                Array(geo.rows) { y -> reading.boardCells[x][y].objectType }
+            }
+        } else null
         onStatus(
             "Tray ${reading.pieces.size}: $traySummary; occupied=$unclassifiedOccupied; " +
-                "background=${(reading.backgroundSupport * 100).toInt()}%; goals=$objectiveSummary$objectiveProgressSuffix"
+                "background=${(reading.backgroundSupport * 100).toInt()}%; goals=$objectiveSummary$objectiveProgressSuffix; " +
+                "objective scoring=${if (objectiveBoardReady) "armed" else "waiting for icon recognition"}"
         )
         val solver = BlockSolver(geo.cols, geo.rows)
-        val moves = solver.solve(reading.grid, reading.pieces)
+        val moves = solver.solve(reading.grid, reading.pieces, objectiveBoard, objectiveGoals)
 
         if (moves == null) {
             onStatus("No fit: ${solver.lastDiagnostic}")
