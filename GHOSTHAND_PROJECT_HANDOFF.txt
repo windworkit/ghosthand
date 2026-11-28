@@ -168,7 +168,7 @@ G. AUTOMATED TESTS AND BUILD PIPELINE
   - GitHub Actions runs unit tests before assembling the debug APK.
   - CI uses a cached stable Android debug signing key and increments Android
     versionCode using the workflow run number.
-  - The latest test/build workflow run is #220:
+  - The most recent completed source-code validation before this documentation-only handoff was run #220:
     https://github.com/windworkit/ghosthand/actions/runs/46094019142
   - Run #220 tested commit:
     326541993516392bae027ef53285674e5ed65d45
