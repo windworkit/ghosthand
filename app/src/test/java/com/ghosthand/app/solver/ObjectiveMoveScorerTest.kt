@@ -121,19 +121,23 @@ class ObjectiveMoveScorerTest {
     }
 
     @Test
-    fun unknownObjectiveTypesDoNotReceiveGuessedProgressBonuses() {
+    fun rejectsUnknownFlowerMechanicInsteadOfTreatingItAsAnOrdinaryBlock() {
         val board = emptyBoard()
         board[1][1] = BoardObjectType.FLOWER
         board[2][1] = BoardObjectType.ORDINARY_BLOCK
         board[3][1] = BoardObjectType.ORDINARY_BLOCK
 
-        val result = ObjectiveMoveScorer.evaluate(
-            board, single, 0, 1,
-            listOf(ObjectiveGoal(ObjectiveType.FLOWER, current = 0, target = 5))
-        )
+        var rejected = false
+        try {
+            ObjectiveMoveScorer.evaluate(
+                board, single, 0, 1,
+                listOf(ObjectiveGoal(ObjectiveType.FLOWER, current = 0, target = 5))
+            )
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
 
-        assertEquals(0, result.markedTilesCollected)
-        assertEquals(0L, result.scoreBonus)
+        assertTrue(rejected)
     }
 
     @Test
