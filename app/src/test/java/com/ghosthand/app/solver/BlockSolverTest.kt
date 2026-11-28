@@ -100,9 +100,9 @@ class BlockSolverTest {
             listOf(ObjectiveGoal(ObjectiveType.HEART, current = 0, target = 1))
         )
 
-        assertTrue(moves != null)
-        assertTrue(moves!!.size == 1)
-        assertTrue(moves.single().x == 0 && moves.single().y == 1)
+        val selectedMoves = moves ?: throw AssertionError("Expected at least one valid move")
+        assertTrue(selectedMoves.size == 1)
+        assertTrue(selectedMoves.single().x == 0 && selectedMoves.single().y == 1)
         assertTrue(solver.lastDiagnostic.contains("objective scoring=enabled"))
     }
 
