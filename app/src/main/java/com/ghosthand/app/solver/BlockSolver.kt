@@ -1,5 +1,6 @@
 package com.ghosthand.app.solver
 
+import com.ghosthand.app.vision.BoardObjectType
 import com.ghosthand.app.vision.BoardReader
 import com.ghosthand.app.vision.ShapeTopology
 
@@ -12,7 +13,12 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
 
     data class Move(val pieceIdx: Int, val piece: BoardReader.Piece, val x: Int, val y: Int)
 
-    fun solve(grid: Array<BooleanArray>, pieces: List<BoardReader.Piece>): List<Move>? {
+    fun solve(
+        grid: Array<BooleanArray>,
+        pieces: List<BoardReader.Piece>,
+        objectiveBoard: Array<Array<BoardObjectType>>? = null,
+        objectiveGoals: List<ObjectiveGoal> = emptyList()
+    ): List<Move>? {
         if (grid.size != cols || grid.any { it.size != rows }) {
             lastDiagnostic = "invalid board dimensions; expected ${cols}x${rows}"
             return null
@@ -20,6 +26,25 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
         if (pieces.isEmpty()) {
             lastDiagnostic = "tray returned 0 pieces"
             return null
+        }
+        if (objectiveBoard != null) {
+            if (objectiveBoard.size != cols || objectiveBoard.any { it.size != rows }) {
+                lastDiagnostic = "objective board dimensions do not match occupancy grid"
+                return null
+            }
+            val occupancyMatches = objectiveBoard.indices.all { x ->
+                objectiveBoard[x].indices.all { y ->
+                    (objectiveBoard[x][y] != BoardObjectType.EMPTY) == grid[x][y]
+                }
+            }
+            if (!occupancyMatches) {
+                lastDiagnostic = "objective labels disagree with board occupancy"
+                return null
+            }
+            if (objectiveGoals.map { it.type }.distinct().size != objectiveGoals.size) {
+                lastDiagnostic = "duplicate objective counters"
+                return null
+            }
         }
         val invalidPiece = pieces.indexOfFirst { !isValidPiece(it) }
         if (invalidPiece >= 0) {
@@ -32,11 +57,17 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
         lastDiagnostic = "empty=$emptyCells/${cols * rows}; " +
             pieces.mapIndexed { i, p ->
                 "${p.name} ${p.w}x${p.h}/${p.cells.size} blocks=${fitCounts[i]} fits"
-            }.joinToString("; ")
+            }.joinToString("; ") +
+            if (objectiveBoard == null) "; objective scoring=disabled (untyped board)"
+            else "; objective scoring=enabled"
 
         var best: List<Move>? = null; var bestScore = Long.MIN_VALUE
         for (perm in permutations(pieces.indices.toList())) {
-            var work = grid; var score = 0L
+            var work = grid
+            var objectiveWork = objectiveBoard?.let { board ->
+                Array(board.size) { x -> board[x].clone() }
+            }
+            var score = 0L
             val moves = mutableListOf<Move>()
             var dead = false
             for (i in perm) {
@@ -44,11 +75,25 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
                 var bi: Pair<Int, Int>? = null; var bs = Long.MIN_VALUE
                 for (x in 0..cols - p.w) for (y in 0..rows - p.h) {
                     if (!fits(work, p, x, y)) continue
-                    val s = scorePlacement(work, p, x, y, pieces.filterIndexed { j, _ -> j != i })
+                    val s = scorePlacement(
+                        work, p, x, y,
+                        pieces.filterIndexed { j, _ -> j != i },
+                        objectiveWork,
+                        objectiveGoals
+                    )
                     if (s >= bs) { bs = s; bi = x to y }
                 }
                 if (bi == null) { dead = true; break }
-                work = apply(work, p, bi.first, bi.second)
+                val typedBoard = objectiveWork
+                if (typedBoard == null) {
+                    work = apply(work, p, bi.first, bi.second)
+                } else {
+                    val evaluation = ObjectiveMoveScorer.evaluate(
+                        typedBoard, p, bi.first, bi.second, objectiveGoals
+                    )
+                    objectiveWork = evaluation.resultingBoard
+                    work = occupancyGrid(evaluation.resultingBoard)
+                }
                 moves.add(Move(i, p, bi.first, bi.second))
                 score += bs
             }
@@ -68,7 +113,9 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
             val remaining = pieces.filterIndexed { index, _ -> index != pieceIdx }
             for (x in 0..(cols - piece.w)) for (y in 0..(rows - piece.h)) {
                 if (!fits(grid, piece, x, y)) continue
-                val score = scorePlacement(grid, piece, x, y, remaining)
+                val score = scorePlacement(
+                    grid, piece, x, y, remaining, objectiveBoard, objectiveGoals
+                )
                 if (score > fallbackScore) {
                     fallbackScore = score
                     fallback = Move(pieceIdx, piece, x, y)
@@ -131,9 +178,15 @@ fun place(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Array<B
 }
     private fun scorePlacement(
         g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int,
-        others: List<BoardReader.Piece>
+        others: List<BoardReader.Piece>,
+        objectiveBoard: Array<Array<BoardObjectType>>?,
+        objectiveGoals: List<ObjectiveGoal>
     ): Long {
-        val after = apply(g, p, x, y)
+        val objectiveEvaluation = objectiveBoard?.let { board ->
+            ObjectiveMoveScorer.evaluate(board, p, x, y, objectiveGoals)
+        }
+        val after = objectiveEvaluation?.let { occupancyGrid(it.resultingBoard) }
+            ?: apply(g, p, x, y)
         val before = count(g); val afterN = count(after)
         val cleared = before + p.cells.size - afterN
         var s = cleared.toLong() * cleared * 300L
@@ -146,7 +199,14 @@ fun place(g: Array<BooleanArray>, p: BoardReader.Piece, x: Int, y: Int): Array<B
                 if (fits(after, o, ox, oy)) { placeable++; continue@outer }
         }
         s += placeable * 120L
+        s += objectiveEvaluation?.scoreBonus ?: 0L
         return s
+    }
+
+    private fun occupancyGrid(
+        board: Array<Array<BoardObjectType>>
+    ): Array<BooleanArray> = Array(board.size) { x ->
+        BooleanArray(board[x].size) { y -> board[x][y] != BoardObjectType.EMPTY }
     }
 
     private fun count(g: Array<BooleanArray>) = g.sumOf { col -> col.count { it } }
