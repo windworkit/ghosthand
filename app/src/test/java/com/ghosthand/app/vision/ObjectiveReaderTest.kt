@@ -65,7 +65,7 @@ class ObjectiveReaderTest {
     fun doesNotMatchObjectiveNamesAsSubstrings() {
         val lines = listOf(
             OcrWord("bombastic bonus", 0.5f, 0.2f, 0.3f, 0.04f),
-            OcrWord("fireworks display", 0.5f, 0.3f, 0.3f, 0.04f)
+            OcrWord("fireworker display", 0.5f, 0.3f, 0.3f, 0.04f)
         )
         val snapshot = ObjectiveReader().read(emptyList(), lines, 720, 1280)
 
