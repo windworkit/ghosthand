@@ -455,10 +455,14 @@ class BoardReader {
                     candidate.cells.all { it in normalized }
             }
 
-            // Use an actual detected tile as the pickup point. The anchor is
-            // also retained in piece-local coordinates for accurate placement.
+            // Pick up an actual tile (an L's bounding-box centre can be empty),
+            // choosing the one nearest the piece centre: the game enlarges the
+            // lifted piece around its middle, so a far-off grab tile skews aim.
+            val midX = (minX + maxX) / 2f
+            val midY = (minY + maxY) / 2f
             val anchor = connected.minWithOrNull(
-                compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first }
+                compareBy<Pair<Int, Int>> { (x, y) -> (x - midX) * (x - midX) + (y - midY) * (y - midY) }
+                    .thenBy { it.second }.thenBy { it.first }
             ) ?: return null
             val grabX = slotLeft + xBands[anchor.first]
             val grabY = y0 + yBands[anchor.second]
@@ -687,9 +691,13 @@ class BoardReader {
             }
 
             // Grab a real tile, never the geometric center of a piece's
-            // bounding box (which can be an empty square for L-shaped pieces).
+            // bounding box (which can be an empty square for L-shaped pieces),
+            // choosing the tile nearest that centre to limit scaling skew.
+            val midX = (minX + maxX) / 2f
+            val midY = (minY + maxY) / 2f
             val anchor = detected.minWithOrNull(
-                compareBy<DetectedCell> { it.y }.thenBy { it.x }
+                compareBy<DetectedCell> { (it.x - midX) * (it.x - midX) + (it.y - midY) * (it.y - midY) }
+                    .thenBy { it.y }.thenBy { it.x }
             ) ?: return null
             val anchorCellX = anchor.x - minX
             val anchorCellY = anchor.y - minY

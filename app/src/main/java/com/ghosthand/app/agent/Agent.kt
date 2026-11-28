@@ -52,6 +52,16 @@ class Agent(
     // alone are not enough: L, T and zig-zag pieces can share a bounding box.
     private val learned = HashMap<PlacementKey, Adj>()
 
+    // The finger-to-piece lift is mostly the same for every piece once aiming
+    // uses the piece centre, so the last confirmed offset is the starting
+    // guess for shapes not seen yet (instead of the fixed prior).
+    private var sharedAdj: Adj? = null
+
+    private fun remember(key: PlacementKey, adj: Adj) {
+        learned[key] = adj
+        sharedAdj = adj
+    }
+
     private fun placementKey(piece: BoardReader.Piece): PlacementKey {
         val canonicalCells = piece.cells
             .sortedWith(compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first })
@@ -267,8 +277,12 @@ class Agent(
         val grabX = if (piece.grabX.isFinite()) piece.grabX else traySlot(reading, m.pieceIdx).first
         val grabY = if (piece.grabY.isFinite()) piece.grabY else traySlot(reading, m.pieceIdx).second
 
-        // Aim the tile actually grabbed at its destination cell. The piece's
-        // bounding-box center is not the pickup point for asymmetric shapes.
+        // The game enlarges a lifted piece from tray size to board size and
+        // positions it by its middle relative to the finger. Aiming the
+        // grabbed tile instead made drops land left/high on a Fold 7 when the
+        // grab tile sat at a piece's end. So aim the piece's bounding-box
+        // centre at the destination's centre; the grab tile only matters for
+        // picking the piece up.
         val cell = geo.cell.toFloat()
         val anchorX = piece.anchorCellX.coerceIn(0, piece.w - 1)
         val anchorY = piece.anchorCellY.coerceIn(0, piece.h - 1)
@@ -277,8 +291,8 @@ class Agent(
             onStatus("Invalid pickup anchor — paused")
             return true
         }
-        val targetAnchorX = geo.ox + (m.x + anchorX + 0.5f) * cell
-        val targetAnchorY = geo.oy + (m.y + anchorY + 0.5f) * cell
+        val targetAnchorX = geo.ox + (m.x + piece.w / 2f) * cell
+        val targetAnchorY = geo.oy + (m.y + piece.h / 2f) * cell
         val base = adjFor(key)
 
         // attempt 0 uses the learned offset. If the game rejects the drop (grid
@@ -343,11 +357,11 @@ class Agent(
                 onStatus("Board changed; landing uncertain — paused")
                 return true
             } else if (landing.first == 0 && landing.second == 0) {
-                learned[key] = adj
+                remember(key, adj)
                 onStatus("Placed on target")
             } else {
                 // It landed (dx, dy) cells away from the intent; move the aim the other way.
-                learned[key] = Adj(adj.x - landing.first, adj.y - landing.second)
+                remember(key, Adj(adj.x - landing.first, adj.y - landing.second))
                 onStatus("Off by ${fmt(landing.first)},${fmt(landing.second)}; adjusted")
             }
             delay(300)
@@ -361,7 +375,7 @@ class Agent(
 
     /** Use calibration only for this exact shape and pickup anchor. */
     private fun adjFor(key: PlacementKey): Adj =
-        learned[key] ?: Adj(PRIOR_X, PRIOR_Y)
+        learned[key] ?: sharedAdj ?: Adj(PRIOR_X, PRIOR_Y)
 
     /**
      * Find the (dx, dy) shift, relative to the intended top-left cell, at which
@@ -487,15 +501,19 @@ class Agent(
     private companion object {
         const val MIN_BACKGROUND_SUPPORT = 0.35f
 
-        // Starting guess: finger about two cells below the piece's center
-        // (the game lifts the dragged piece above the finger). Replaced by
-        // what is observed after the first placement.
+        // Starting guess: finger below the piece's centre (the game lifts the
+        // dragged piece above the finger). 2 cells landed "a bit high" on a
+        // Fold 7, so start lower. Replaced by what is observed after the first
+        // successful placement.
         const val PRIOR_X = 0f
-        const val PRIOR_Y = 2f
+        const val PRIOR_Y = 2.5f
 
-        // Nudges tried, in order, when the game rejects a drop.
+        // Nudges tried, in order, when the game rejects a drop. Half-cell
+        // steps around the guess, nearest first, before larger ones. (The old
+        // list moved the finger up first, which made a high drop worse.)
         val PROBES = listOf(
-            0f to -1f, 0f to -2f, 0f to 1f, 0f to -3f, -1f to 0f, 1f to 0f
+            0f to 0.5f, 0.5f to 0f, 0f to -0.5f, -0.5f to 0f,
+            0.5f to 0.5f, 0f to 1f, 0f to -1f
         )
     }
 }
