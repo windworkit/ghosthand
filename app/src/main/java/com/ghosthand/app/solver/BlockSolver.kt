@@ -41,6 +41,19 @@ class BlockSolver(private val cols: Int, private val rows: Int) {
                 lastDiagnostic = "objective labels disagree with board occupancy"
                 return null
             }
+            val supportedObjectiveTypes = setOf(
+                BoardObjectType.EMPTY,
+                BoardObjectType.ORDINARY_BLOCK,
+                BoardObjectType.HEART,
+                BoardObjectType.APPLE
+            )
+            if (objectiveBoard.any { column ->
+                    column.any { cell -> cell !in supportedObjectiveTypes }
+                }
+            ) {
+                lastDiagnostic = "objective board contains an unsupported special tile type"
+                return null
+            }
             if (objectiveGoals.map { it.type }.distinct().size != objectiveGoals.size) {
                 lastDiagnostic = "duplicate objective counters"
                 return null
