@@ -7,6 +7,7 @@ import com.ghosthand.app.vision.BoardReader
 import com.ghosthand.app.vision.GameGeometry
 import com.ghosthand.app.vision.BoardObjectType
 import com.ghosthand.app.vision.ObjectiveReader
+import com.ghosthand.app.vision.ObjectiveProgressTracker
 import com.ghosthand.app.vision.Ocr
 import com.ghosthand.app.vision.ScreenClassifier
 import com.ghosthand.app.vision.ScreenState
@@ -26,6 +27,7 @@ class Agent(
     private var geoCache: GameGeometry.Geo? = null
     private val reader = BoardReader()
     private val objectiveReader = ObjectiveReader()
+    private val objectiveProgressTracker = ObjectiveProgressTracker()
     // Stop blind retries when the game did not accept a placement.
     private var stopOnFailedPlacement = false
     private var wasPaused = false
@@ -194,6 +196,21 @@ class Agent(
                 "no readable objective text"
             }
         }
+        // A goal counter is treated as progress only after the same value is
+        // observed on two separate captured frames; a one-frame OCR glitch
+        // must not influence diagnostics or any future move-learning logic.
+        val objectiveProgressUpdate = objectiveProgressTracker.observe(objectiveSnapshot)
+        val progressSummary = objectiveProgressUpdate.increases.joinToString(", ") {
+            "${it.type.name.lowercase()} +${it.amount} (${it.current}/${it.target})"
+        }
+        val regressionSummary = objectiveProgressUpdate.decreases.joinToString(", ") {
+            "${it.type.name.lowercase()} ${it.previous}→${it.current} (not scored)"
+        }
+        val objectiveProgressSuffix = when {
+            progressSummary.isNotEmpty() -> "; progress=$progressSummary"
+            regressionSummary.isNotEmpty() -> "; counter reset=$regressionSummary"
+            else -> ""
+        }
         if (reading.backgroundSupport < MIN_BACKGROUND_SUPPORT) {
             stopOnFailedPlacement = true
             onStatus(
@@ -206,7 +223,7 @@ class Agent(
         }
         onStatus(
             "Tray ${reading.pieces.size}: $traySummary; occupied=$unclassifiedOccupied; " +
-                "background=${(reading.backgroundSupport * 100).toInt()}%; goals=$objectiveSummary"
+                "background=${(reading.backgroundSupport * 100).toInt()}%; goals=$objectiveSummary$objectiveProgressSuffix"
         )
         val solver = BlockSolver(geo.cols, geo.rows)
         val moves = solver.solve(reading.grid, reading.pieces)
