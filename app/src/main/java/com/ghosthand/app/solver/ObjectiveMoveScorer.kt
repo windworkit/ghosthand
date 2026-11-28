@@ -63,6 +63,9 @@ object ObjectiveMoveScorer {
         }
         val rows = board.first().size
         require(board.all { it.size == rows }) { "Board columns must have equal heights" }
+        require(board.all { column ->
+            column.all { it in SUPPORTED_BOARD_TYPES }
+        }) { "Board contains an unsupported or unclassified object type" }
         val cols = board.size
         require(goals.map { it.type }.distinct().size == goals.size) {
             "Only one counter per objective type is allowed"
@@ -165,6 +168,14 @@ object ObjectiveMoveScorer {
             scoreBonus = scoreBonus
         )
     }
+
+    private val SUPPORTED_BOARD_TYPES = setOf(
+        BoardObjectType.EMPTY,
+        BoardObjectType.ORDINARY_BLOCK,
+        BoardObjectType.HEART,
+        BoardObjectType.APPLE,
+        BoardObjectType.BALLOON
+    )
 
     private const val HEART_PROGRESS_WEIGHT = 1_000
     private const val APPLE_COLLECTION_WEIGHT = 1_200
