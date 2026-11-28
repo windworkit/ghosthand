@@ -62,6 +62,21 @@ class ObjectiveReaderTest {
     }
 
     @Test
+    fun recognizesHeartObjectiveLabelAndCounter() {
+        val snapshot = ObjectiveReader().read(
+            emptyList(),
+            listOf(OcrWord("Hearts 3/8", 0.5f, 0.15f, 0.2f, 0.04f)),
+            720,
+            1280
+        )
+
+        assertEquals(1, snapshot.counters.size)
+        assertEquals(ObjectiveType.HEART, snapshot.counters.single().type)
+        assertEquals(3, snapshot.counters.single().current)
+        assertEquals(8, snapshot.counters.single().target)
+    }
+
+    @Test
     fun doesNotMatchObjectiveNamesAsSubstrings() {
         val lines = listOf(
             OcrWord("bombastic bonus", 0.5f, 0.2f, 0.3f, 0.04f),
