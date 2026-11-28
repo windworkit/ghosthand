@@ -67,6 +67,45 @@ class BlockSolverTest {
     }
 
     @Test
+    fun runsOptionalObjectiveScoringOnlyForMatchingSupportedBoard() {
+        val typed = Array(4) { Array(4) { com.ghosthand.app.vision.BoardObjectType.EMPTY } }
+        typed[0][0] = com.ghosthand.app.vision.BoardObjectType.ORDINARY_BLOCK
+        typed[2][0] = com.ghosthand.app.vision.BoardObjectType.ORDINARY_BLOCK
+        typed[0][1] = com.ghosthand.app.vision.BoardObjectType.EMPTY
+        typed[1][1] = com.ghosthand.app.vision.BoardObjectType.EMPTY
+        typed[2][1] = com.ghosthand.app.vision.BoardObjectType.HEART
+        typed[3][1] = com.ghosthand.app.vision.BoardObjectType.ORDINARY_BLOCK
+        typed[0][2] = com.ghosthand.app.vision.BoardObjectType.EMPTY
+        typed[1][2] = com.ghosthand.app.vision.BoardObjectType.ORDINARY_BLOCK
+        typed[2][2] = com.ghosthand.app.vision.BoardObjectType.EMPTY
+        typed[3][2] = com.ghosthand.app.vision.BoardObjectType.ORDINARY_BLOCK
+        typed[0][3] = com.ghosthand.app.vision.BoardObjectType.ORDINARY_BLOCK
+        typed[1][3] = com.ghosthand.app.vision.BoardObjectType.ORDINARY_BLOCK
+        typed[2][3] = com.ghosthand.app.vision.BoardObjectType.EMPTY
+        typed[3][3] = com.ghosthand.app.vision.BoardObjectType.ORDINARY_BLOCK
+
+        val occupancy = Array(4) { x ->
+            BooleanArray(4) { y ->
+                typed[x][y] != com.ghosthand.app.vision.BoardObjectType.EMPTY
+            }
+        }
+        val domino = BoardReader.Piece("domino", listOf(0 to 0, 1 to 0), 2, 1)
+        val solver = BlockSolver(4, 4)
+
+        val moves = solver.solve(
+            occupancy,
+            listOf(domino),
+            typed,
+            listOf(ObjectiveGoal(ObjectiveType.HEART, current = 0, target = 1))
+        )
+
+        assertTrue(moves != null)
+        assertTrue(moves!!.size == 1)
+        assertTrue(moves.single().x == 0 && moves.single().y == 1)
+        assertTrue(solver.lastDiagnostic.contains("objective scoring=enabled"))
+    }
+
+    @Test
     fun irregularPieceMayUseAnEmptyCellInsideItsBoundingBox() {
         val grid = Array(8) { BooleanArray(8) }
         // The top-right cell is intentionally absent from this L shape.
