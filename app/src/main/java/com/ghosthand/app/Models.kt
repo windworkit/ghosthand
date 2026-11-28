@@ -100,11 +100,11 @@ object ScriptBackupCodec {
 
     private fun isValidScript(script: Script): Boolean {
         if (!validId.matches(script.id)) return false
-        if (script.name.length > 120) return false
+        if (script.name.length > 500) return false
         if (script.steps.size > MAX_STEPS_PER_SCRIPT) return false
-        if (script.repeats !in 0..1_000_000) return false
-        if (script.jitterMs !in 0L..60_000L) return false
-        if (!script.jitterDp.isFinite() || script.jitterDp !in 0f..100f) return false
+        if (script.repeats !in setOf(0, 1, 2, 3, 5, 10)) return false
+        if (script.jitterMs !in 0L..600L) return false
+        if (!script.jitterDp.isFinite() || script.jitterDp !in 0f..20f) return false
 
         var loopDepth = 0
         for (step in script.steps) {
@@ -113,17 +113,17 @@ object ScriptBackupCodec {
                     if (!validCoord(step.x) || !validCoord(step.y)) return false
                 is Step.LongPress ->
                     if (!validCoord(step.x) || !validCoord(step.y) ||
-                        step.ms !in 1L..60_000L
+                        step.ms !in 100L..10_000L
                     ) return false
                 is Step.Swipe ->
                     if (!validCoord(step.x1) || !validCoord(step.y1) ||
                         !validCoord(step.x2) || !validCoord(step.y2) ||
-                        step.ms !in 40L..60_000L
+                        step.ms !in 40L..3_000L
                     ) return false
                 is Step.Wait ->
-                    if (step.ms !in 0L..600_000L) return false
+                    if (step.ms !in 50L..120_000L) return false
                 is Step.LoopStart -> {
-                    if (step.times !in 0..1_000_000) return false
+                    if (step.times !in setOf(0, 2, 3, 5, 10, 20)) return false
                     loopDepth++
                 }
                 is Step.LoopEnd -> {

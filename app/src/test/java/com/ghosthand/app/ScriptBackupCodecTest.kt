@@ -68,6 +68,29 @@ class ScriptBackupCodecTest {
     }
 
     @Test
+    fun rejectsSettingsOutsideEditorRanges() {
+        val highJitter = Script(jitterDp = 21f)
+        val invalidRepeatCount = Script(repeats = 4)
+        val unsupportedLoopCount = Script(
+            steps = listOf(Step.LoopStart(4), Step.LoopEnd)
+        )
+        val excessiveLongPress = Script(
+            steps = listOf(Step.LongPress(0.5f, 0.5f, 10_001))
+        )
+
+        listOf(
+            highJitter,
+            invalidRepeatCount,
+            unsupportedLoopCount,
+            excessiveLongPress
+        ).forEach { script ->
+            assertFalse(runCatching {
+                ScriptBackupCodec.encode(listOf(script))
+            }.isSuccess)
+        }
+    }
+
+    @Test
     fun rejectsUnsupportedBackupSchema() {
         val unsupported = """{"schemaVersion":99,"scripts":[]}"""
 
