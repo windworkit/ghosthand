@@ -42,10 +42,11 @@ class ObjectiveBoardClassificationGateTest {
 
         assertTrue(result.isReady)
         assertNull(result.rejectionReason)
-        assertEquals(BoardObjectType.ORDINARY_BLOCK, result.board!![0][0])
-        assertEquals(BoardObjectType.EMPTY, result.board[0][1])
-        assertEquals(BoardObjectType.HEART, result.board[1][0])
-        assertEquals(BoardObjectType.APPLE, result.board[1][1])
+        val typedBoard = result.board ?: throw AssertionError("Expected a classified board")
+        assertEquals(BoardObjectType.ORDINARY_BLOCK, typedBoard[0][0])
+        assertEquals(BoardObjectType.EMPTY, typedBoard[0][1])
+        assertEquals(BoardObjectType.HEART, typedBoard[1][0])
+        assertEquals(BoardObjectType.APPLE, typedBoard[1][1])
     }
 
     @Test
