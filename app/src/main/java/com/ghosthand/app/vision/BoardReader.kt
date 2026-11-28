@@ -62,7 +62,7 @@ class BoardReader {
             "XX/XX", "XXX/XXX", "XXX/XXX/XXX",
             "X./XX",
             "X../X../XXX",
-            "X./X./XX", "X./XXX",
+            "X./X./XX", "X../XXX",
             "XXX/.X./.X.", ".X./XXX/.X.", ".X./XXX",
             ".XX/XX.", "XX./.XX"
         )
