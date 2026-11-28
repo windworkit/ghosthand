@@ -67,20 +67,19 @@ object BoardOccupancyClassifier {
         )
         val support = backgroundSamples.size.toFloat() / perimeterSampleCount
 
-        val luminances = samples.flatMap { column ->
-            column.map { it.center.luminance }
-        }
-        val darkest = luminances.minOrNull() ?: 255
-        val brightnessThreshold = maxOf(76, darkest + 28)
-
         val classified = Array(samples.size) { x ->
             Array(rows) { y ->
                 val center = samples[x][y].center
                 val distance = kotlin.math.abs(center.red - background.red) +
                     kotlin.math.abs(center.green - background.green) +
                     kotlin.math.abs(center.blue - background.blue)
+
+                // A luminance-only override misclassifies empty cells whenever
+                // occupied blocks are darker than the board surface. Once a
+                // background reference is established, judge occupancy by
+                // color distance from that reference instead.
                 ClassifiedCell(
-                    occupied = center.luminance > brightnessThreshold || distance >= 48,
+                    occupied = distance >= 42,
                     luminance = center.luminance,
                     backgroundDistance = distance
                 )

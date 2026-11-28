@@ -58,6 +58,26 @@ class BoardOccupancyClassifierTest {
     }
 
     @Test
+    fun darkerPiecesDoNotCauseTheLighterEmptySurfaceToLookOccupied() {
+        val background = RgbColor(88, 96, 124)
+        val darkBlock = RgbColor(38, 18, 31)
+        val samples = Array(8) { x ->
+            Array(8) { y ->
+                CellColorSamples(
+                    center = if (x < 3 && y < 4) darkBlock else background,
+                    corners = List(8) { background }
+                )
+            }
+        }
+
+        val result = BoardOccupancyClassifier.classify(samples)
+
+        assertFalse(result.cells[7][7].occupied)
+        assertTrue(result.cells[0][0].occupied)
+        assertEquals(0, result.cells[7][7].backgroundDistance)
+    }
+
+    @Test
     fun rejectsInvalidSampleGrids() {
         val color = RgbColor(10, 20, 30)
         val emptyCorners = CellColorSamples(color, emptyList())
