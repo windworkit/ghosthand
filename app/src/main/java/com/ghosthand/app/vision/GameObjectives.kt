@@ -109,7 +109,13 @@ class ObjectiveReader {
                 screenY = line.y,
                 sourceText = line.text
             )
-        }.distinctBy { it.type to (it.screenY * 100).roundToInt() }
+        }.distinctBy {
+            Triple(
+                it.type,
+                (it.screenX * 100).roundToInt(),
+                (it.screenY * 100).roundToInt()
+            )
+        }
 
         val numeric = words.mapNotNull { word ->
             word.text.takeIf {

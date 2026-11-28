@@ -36,6 +36,20 @@ class ObjectiveReaderTest {
     }
 
     @Test
+    fun keepsSameTypeObjectivesAtDifferentPositionsOnOneRow() {
+        val lines = listOf(
+            OcrWord("Flowers 1/4", 0.20f, 0.15f, 0.12f, 0.04f),
+            OcrWord("Flowers 2/6", 0.75f, 0.15f, 0.12f, 0.04f)
+        )
+
+        val snapshot = ObjectiveReader().read(emptyList(), lines, 720, 1280)
+
+        assertEquals(2, snapshot.counters.size)
+        assertEquals(listOf(1, 2), snapshot.counters.map { it.current })
+        assertEquals(listOf(4, 6), snapshot.counters.map { it.target })
+    }
+
+    @Test
     fun preservesCounterRatiosWhenOcrSplitsThemFromIcons() {
         val words = listOf(OcrWord("2/7", 0.8f, 0.2f, 0.05f, 0.03f))
         val snapshot = ObjectiveReader().read(words, emptyList(), 720, 1280)
